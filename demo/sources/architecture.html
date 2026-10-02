@@ -1,0 +1,25 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>
+body { margin: 0; background: #fbfbf7; font-family: "Segoe Print", "Comic Sans MS", sans-serif; }
+.t { font-size: 34px; font-weight: 700; fill: #222; }
+.box { fill: #fff; stroke: #1c3d8f; stroke-width: 4; }
+.lbl { font-size: 30px; font-weight: 700; fill: #1c3d8f; text-anchor: middle; }
+.arrow { stroke: #333; stroke-width: 4; marker-end: url(#a); }
+.note { font-size: 24px; fill: #c92a2a; }
+</style></head><body>
+<svg width="1400" height="760" xmlns="http://www.w3.org/2000/svg">
+  <defs><marker id="a" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0,0 L12,6 L0,12 z" fill="#333"/></marker></defs>
+  <text x="40" y="60" class="t">Payments Platform - Target Architecture</text>
+  <rect x="60" y="300" width="250" height="110" rx="14" class="box"/><text x="185" y="368" class="lbl">Frontend</text>
+  <rect x="460" y="300" width="250" height="110" rx="14" class="box"/><text x="585" y="368" class="lbl">API Gateway</text>
+  <rect x="860" y="140" width="300" height="110" rx="14" class="box"/><text x="1010" y="208" class="lbl">Payments Service</text>
+  <rect x="860" y="460" width="300" height="110" rx="14" class="box"/><text x="1010" y="528" class="lbl">Auth Service</text>
+  <rect x="1060" y="620" width="300" height="100" rx="50" class="box"/><text x="1210" y="682" class="lbl">Postgres DB</text>
+  <line x1="310" y1="355" x2="455" y2="355" class="arrow"/>
+  <line x1="710" y1="340" x2="855" y2="210" class="arrow"/>
+  <line x1="710" y1="370" x2="855" y2="500" class="arrow"/>
+  <line x1="1110" y1="250" x2="1200" y2="615" class="arrow"/>
+  <text x="870" y="110" class="note">BLOCKER: PCI audit not done</text>
+  <text x="60" y="460" class="note">Owner: Web Team</text>
+</svg>
+</body></html>

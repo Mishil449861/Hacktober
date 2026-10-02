@@ -1,0 +1,51 @@
+{
+  "name": "orgmap-ai",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Turn meeting minutes, whiteboard photos and diagrams into one live, editable organizational map and project dashboard, using local models only.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n api,web -c blue,green \"tsx watch --ignore data/** server/index.ts\" \"vite\"",
+    "server": "tsx server/index.ts",
+    "start": "vite build && tsx server/index.ts",
+    "demo": "streamlit run demo/streamlit_app.py",
+    "test": "tsx --test tests/unit.test.ts tests/views.test.ts tests/minutes.test.ts",
+    "test:eval": "tsx tests/eval.ts",
+    "test:scenario": "tsx tests/scenario.ts",
+    "typecheck": "tsc -b && tsc --noEmit -p tsconfig.server.json",
+    "build": "tsc -b && vite build",
+    "lint": "oxlint",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@cloudinary/react": "^1.14.4",
+    "@cloudinary/url-gen": "^1.22.0",
+    "@xyflow/react": "^12.12.0",
+    "cloudinary": "^2.11.0",
+    "dagre": "^0.8.5",
+    "dotenv": "^18.0.5",
+    "express": "^5.2.1",
+    "multer": "^2.4.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "tesseract.js": "^7.0.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/dagre": "^0.7.54",
+    "@types/express": "^5.0.6",
+    "@types/multer": "^2.3.0",
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "@vitejs/plugin-react": "^6.1.1",
+    "concurrently": "^10.0.5",
+    "oxlint": "^1.81.0",
+    "tsx": "^4.23.15",
+    "typescript": "~6.0.2",
+    "vite": "^8.3.0"
+  }
+}

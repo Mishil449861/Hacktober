@@ -1,0 +1,119 @@
+[
+  {
+    "id": "spec-text",
+    "description": "Spec example: ownership + dependency from plain text",
+    "sources": [
+      { "kind": "TEXT", "text": "Sarah owns the Payments migration. The API migration depends on the new authentication service." }
+    ],
+    "expectNodes": [
+      { "label": "Sarah", "type": "PERSON" },
+      { "label": "Payments migration" },
+      { "label": "API migration" },
+      { "label": "Authentication service" }
+    ],
+    "expectEdges": [
+      { "from": "Sarah", "to": "Payments migration", "rel": ["OWNS", "RESPONSIBLE_FOR"] },
+      { "from": "API migration", "to": "Authentication service", "rel": ["DEPENDS_ON"] }
+    ]
+  },
+  {
+    "id": "incremental-merge",
+    "description": "Spec example: second source extends API instead of regenerating",
+    "sources": [
+      { "kind": "TEXT", "text": "The Frontend calls the API. The API reads and writes the Database." },
+      { "kind": "TEXT", "text": "The API also calls the Authentication service to validate tokens." }
+    ],
+    "expectNodes": [
+      { "label": "Frontend" },
+      { "label": "API" },
+      { "label": "Database" },
+      { "label": "Authentication service" }
+    ],
+    "expectEdges": [
+      { "from": "Frontend", "to": "API", "rel": ["CALLS", "USES", "DEPENDS_ON"] },
+      { "from": "API", "to": "Database", "rel": ["USES", "CALLS", "DEPENDS_ON", "RELATES_TO"] },
+      { "from": "API", "to": "Authentication service", "rel": ["CALLS", "USES", "DEPENDS_ON"] }
+    ],
+    "noDuplicates": ["API"]
+  },
+  {
+    "id": "alias-reconcile",
+    "description": "Abbreviation in a later source must reconcile to the existing node",
+    "sources": [
+      { "kind": "TEXT", "text": "The Authentication API is owned by the Identity Team." },
+      { "kind": "TEXT", "text": "Auth API latency is blocking the Checkout launch milestone." }
+    ],
+    "expectNodes": [
+      { "label": "Authentication API", "aka": ["Auth API"] },
+      { "label": "Identity Team", "type": "TEAM" },
+      { "label": "Checkout launch", "aka": ["Checkout launch milestone"] }
+    ],
+    "expectEdges": [
+      { "from": "Identity Team", "to": "Authentication API", "rel": ["OWNS", "RESPONSIBLE_FOR"] },
+      { "from": "Authentication API", "to": "Checkout launch", "rel": ["BLOCKS"] }
+    ],
+    "noDuplicates": ["Authentication API"]
+  },
+  {
+    "id": "org-chart-image",
+    "description": "Org chart image: reporting lines (tree connectors, no arrowheads)",
+    "sources": [{ "kind": "IMAGE", "file": "org-chart.png" }],
+    "expectNodes": [
+      { "label": "Maria Lopez", "type": "PERSON" },
+      { "label": "Raj Patel", "type": "PERSON" },
+      { "label": "Ana Silva", "type": "PERSON" },
+      { "label": "Platform Team" },
+      { "label": "Payments Team" }
+    ],
+    "expectEdges": [
+      { "from": "Raj Patel", "to": "Maria Lopez", "rel": ["REPORTS_TO"] },
+      { "from": "Ana Silva", "to": "Maria Lopez", "rel": ["REPORTS_TO"] },
+      { "from": "Raj Patel", "to": "Platform Team", "rel": ["OWNS", "RESPONSIBLE_FOR", "PART_OF"], "undirected": true },
+      { "from": "Ana Silva", "to": "Payments Team", "rel": ["OWNS", "RESPONSIBLE_FOR", "PART_OF"], "undirected": true }
+    ]
+  },
+  {
+    "id": "process-flow-image",
+    "description": "Hand-drawn style process flow with a blocker annotation",
+    "sources": [{ "kind": "IMAGE", "file": "process-flow.png" }],
+    "expectNodes": [
+      { "label": "Order Received" },
+      { "label": "Fraud Check" },
+      { "label": "Payment Capture" },
+      { "label": "Ledger Posting" },
+      { "label": "Ledger API rate limits", "type": "BLOCKER" }
+    ],
+    "expectEdges": [
+      { "from": "Order Received", "to": "Fraud Check", "rel": ["PRECEDES", "FEEDS_INTO"] },
+      { "from": "Fraud Check", "to": "Payment Capture", "rel": ["PRECEDES", "FEEDS_INTO"] },
+      { "from": "Payment Capture", "to": "Ledger Posting", "rel": ["PRECEDES", "FEEDS_INTO"] },
+      { "from": "Ledger API rate limits", "to": "Ledger Posting", "rel": ["BLOCKS"] }
+    ]
+  },
+  {
+    "id": "mixed-image-then-text",
+    "description": "Architecture diagram, then markdown notes about the same systems",
+    "sources": [
+      { "kind": "IMAGE", "file": "../../../demo/sources/architecture.png" },
+      { "kind": "TEXT_FILE", "file": "../../../demo/sources/kickoff-notes.md" }
+    ],
+    "expectNodes": [
+      { "label": "Frontend" },
+      { "label": "API Gateway" },
+      { "label": "Payments Service" },
+      { "label": "Auth Service", "aka": ["Authentication Service"] },
+      { "label": "Postgres DB", "aka": ["Postgres Database"] },
+      { "label": "PCI audit", "aka": ["PCI audit not done"] },
+      { "label": "Sarah Chen", "type": "PERSON" },
+      { "label": "Platform Team" }
+    ],
+    "expectEdges": [
+      { "from": "Frontend", "to": "API Gateway", "rel": ["CALLS", "USES", "DEPENDS_ON"] },
+      { "from": "API Gateway", "to": "Payments Service", "rel": ["CALLS", "USES", "DEPENDS_ON", "FEEDS_INTO"] },
+      { "from": "API Gateway", "to": "Auth Service", "rel": ["CALLS", "USES", "DEPENDS_ON", "FEEDS_INTO"] },
+      { "from": "Payments Service", "to": "Postgres DB", "rel": ["USES", "CALLS", "DEPENDS_ON", "FEEDS_INTO", "RELATES_TO"] },
+      { "from": "Platform Team", "to": "API Gateway", "rel": ["OWNS", "RESPONSIBLE_FOR"] }
+    ],
+    "noDuplicates": ["Postgres DB", "API Gateway", "Payments Service"]
+  }
+]
