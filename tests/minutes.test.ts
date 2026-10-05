@@ -2,9 +2,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
-import { parseMinutes, type KnownEntity } from '../server/lib/minutes.ts'
+import { combineWithModel, parseMinutes, type KnownEntity } from '../server/lib/minutes.ts'
 
-const read = (f: string) => fs.readFileSync(`demo/minutes/${f}`, 'utf8')
+const read = (f: string) => fs.readFileSync(`demo/scenarios/payments-migration/${f}`, 'utf8')
 const labels = (p: ReturnType<typeof parseMinutes>, type: string) => p.nodes.filter((n) => n.type === type)
 const edge = (p: ReturnType<typeof parseMinutes>, from: string, rel: string, to: string) => p.edges.some((e) =>
   e.relationship === rel &&
@@ -75,4 +75,63 @@ test('steering committee: resolves blocker, closes tasks, slips milestone, new r
     ['Renew the fraud vendor contract', '2026-10-10'], ['Write the Checkout launch runbook', '2026-11-01'],
   ])
   assert.equal(labels(p, 'DECISION').length, 1)
+})
+
+test('free-form notes without headings: owner + due date bullets and TODO lines are action items', () => {
+  const p = parseMinutes([
+    'Dana Kim owns the Q4 Launch project.',
+    '- Dana Kim: book the launch venue (due 2026-10-20)',
+    'TODO: Leo Marsh: draft the press release',
+    '- Dana Kim: presented the venue shortlist',
+    '- Decision: launch in Berlin.',
+    'Leo Marsh reports to Dana Kim.',
+  ].join('\n'), { meetingDate: '2026-10-04' })
+  assert.deepEqual(labels(p, 'TASK').map((t) => [t.label, t.date, t.status]), [
+    ['Book the launch venue', '2026-10-20', 'OPEN'],
+    ['Draft the press release', undefined, 'OPEN'],
+  ], 'a bullet with an owner but no due date and no TODO prefix is not assumed to be a task')
+  assert.ok(edge(p, 'Dana Kim', 'RESPONSIBLE_FOR', 'Book the launch venue'))
+  assert.ok(edge(p, 'Leo Marsh', 'RESPONSIBLE_FOR', 'Draft the press release'))
+  assert.ok(edge(p, 'Dana Kim', 'OWNS', 'Q4 Launch'))
+  assert.ok(edge(p, 'Leo Marsh', 'REPORTS_TO', 'Dana Kim'))
+  assert.deepEqual(labels(p, 'DECISION').map((d) => d.label), ['Launch in Berlin'])
+})
+
+test('combineWithModel: model "decisions" are dropped when the text has no decision language', () => {
+  const model = {
+    summary: '', ambiguities: [], edges: [],
+    nodes: [
+      { temporaryId: 'n1', label: 'Budget approved', type: 'DECISION' as const, confidence: 0.8 },
+      { temporaryId: 'n2', label: 'Network Setup', type: 'SYSTEM' as const, confidence: 0.9 },
+    ],
+  }
+  const updates = '## Updates\n- Victor Ruiz: the relocation budget is approved. Done.'
+  assert.deepEqual(combineWithModel(model, parseMinutes(updates), updates).nodes.map((n) => n.label), ['Network Setup'])
+  const prose = 'We agreed to move everyone in one weekend.'
+  assert.deepEqual(combineWithModel(model, parseMinutes(prose), prose).nodes.map((n) => n.label), ['Budget approved', 'Network Setup'])
+})
+
+test('second domain (office relocation): updates resolve the permit, slip the move, close tasks', () => {
+  const dir = 'demo/scenarios/office-relocation/'
+  const known: KnownEntity[] = [
+    { label: 'Get three quotes from moving companies', type: 'TASK', status: 'DONE' },
+    { label: 'Approve the relocation budget', type: 'TASK', status: 'IN_PROGRESS' },
+    { label: 'Sign the contract with Swift Movers', type: 'TASK', status: 'OPEN' },
+    { label: 'Order the network equipment', type: 'TASK', status: 'OPEN' },
+    { label: 'Building permit', type: 'BLOCKER', status: 'OPEN' },
+    { label: 'Move weekend', type: 'MILESTONE', status: 'OPEN' },
+    { label: 'Network Setup', type: 'SYSTEM' },
+  ]
+  const p = parseMinutes(fs.readFileSync(dir + '03-go-no-go.md', 'utf8'), { meetingDate: '2026-09-30', knownEntities: known })
+  const byLabel = (l: string) => p.nodes.find((n) => n.label === l)
+  assert.equal(byLabel('Building permit')?.status, 'RESOLVED')
+  assert.equal(byLabel('Approve the relocation budget')?.status, 'DONE')
+  assert.equal(byLabel('Sign the contract with Swift Movers')?.status, 'DONE')
+  assert.equal(byLabel('Move weekend')?.date, '2026-11-07')
+  assert.equal(byLabel('Order the network equipment'), undefined, 'the delayed-equipment sentence must not touch the order task')
+  assert.equal(byLabel('Network equipment delivery')?.status, 'OPEN', '"has not confirmed" is not a completion')
+  assert.deepEqual(labels(p, 'TASK').filter((t) => t.date).map((t) => t.label), [
+    'Escalate the network equipment delivery with the supplier', 'Prepare the desk-by-desk seating plan',
+  ])
+  assert.ok(edge(p, 'Nina Brandt', 'REPORTS_TO', 'Grace Liu'))
 })

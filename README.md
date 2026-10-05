@@ -28,17 +28,18 @@ Someone photographs the whiteboard after a meeting, or pastes the minutes. OrgMa
 
 ## Demo in 5 minutes
 
-After [setup](#setup):
+After [setup](#setup), one command starts everything (Windows PowerShell):
 
-```bash
-npm run dev     # terminal 1: API (port 8787) + web app (port 5173)
-npm run demo    # terminal 2: Streamlit dashboard (port 8501)
+```powershell
+.\start-demo.ps1
 ```
 
-In the Streamlit page:
+Or run the two parts yourself, see [Running](#running). Everything happens on this one laptop; no phone or second machine is needed.
 
-1. Click **Create "Payments Platform Migration"** in the sidebar.
-2. On **▶ Add meetings**, click **Add next meeting** four times. Each click feeds one meeting's minutes (and a whiteboard or sprint-board photo for two of them) to the local model, about 20–60 s each.
+In the dashboard (http://localhost:8501):
+
+1. In the sidebar open **➕ New project**, choose **Start from → Payments Platform Migration**, and click **Create project**.
+2. On **➕ Add notes**, under **Sample story**, click **Add next** four times. Each click feeds one meeting's minutes (and a whiteboard or sprint-board photo for two of them) to the local model, about 30–90 s each.
 3. Watch **📊 Dashboard** after each meeting:
 
 | Meeting | What the dashboard shows |
@@ -49,9 +50,29 @@ In the Streamlit page:
 | Sep 29, Steering committee + sprint-board photo | PCI blocker **resolved**, Checkout launch **slips 15 days**, a new vendor risk, the sprint board marks tasks done, an **overdue** load-test |
 
 4. **📄 Status report** has a Markdown report to download or paste.
-5. **Live capture:** open the 📷 **Phone capture** link from the sidebar on a phone on the same Wi-Fi and photograph a real whiteboard. The photo goes to Cloudinary, and the dashboard refreshes by itself.
+5. **Add something live** under **Your notes**: type a line such as `- Tom Becker: finish the load test (due 2026-10-15)`, upload a photo, or switch on **Use this laptop's camera** and photograph a whiteboard.
 
-The full graph editor (drag nodes, merge duplicates, edit relationships) is the web app at **http://localhost:5173**.
+A second, non-software story (**Office Relocation**) ships as well. The full graph editor (drag nodes, merge duplicates, edit relationships) is the web app at **http://localhost:5173**.
+
+### Make your own demo
+
+**Any project, live.** Create a blank project with any name and add notes under **Your notes**: paste text, upload `.md` / `.txt` files and photos, or use the laptop camera. Nothing else is required.
+
+**A scripted story you can click through.** Add a folder to `demo/scenarios/`. Files are grouped into steps by their leading number:
+
+```
+demo/scenarios/q4-product-launch/
+  01-kickoff.md              minutes for step 1
+  02-design-review.md        minutes for step 2 ...
+  02-whiteboard.jpg          ... with a photo (any number of images share the step's number)
+  03-sprint-board.png        a photo on its own
+```
+
+- The first heading sets the names: `# Q4 Product Launch: Kickoff` → project "Q4 Product Launch", step "Kickoff".
+- A line `**Date:** 2026-10-01` dates the meeting; later meetings override earlier ones. Without it, today's date is used.
+- See [Minutes format that works best](#minutes-format-that-works-best) for the patterns that are read exactly.
+
+The story appears in the dashboard within 10 seconds, under **➕ New project → Start from** and under **Sample story**. No code changes are needed.
 
 ---
 
@@ -82,12 +103,16 @@ npm install
 # 2. Local model (one-time download, about 6 GB)
 ollama pull qwen2.5vl:7b
 
-# 3. Demo dependencies (optional)
+# 3. Python environment for the demo dashboard
+python -m venv .venv
+.venv\Scripts\Activate.ps1          # macOS/Linux: source .venv/bin/activate
 pip install -r demo/requirements.txt
 
 # 4. Configuration
-cp .env.example .env        # Windows PowerShell: Copy-Item .env.example .env
+cp .env.example .env                # Windows PowerShell: Copy-Item .env.example .env
 ```
+
+On Windows, `.\start-demo.ps1` does steps 1, 3 and 4 for you on first run. If PowerShell refuses to run scripts, use `powershell -ExecutionPolicy Bypass -File .\start-demo.ps1`, or allow scripts for your user once with `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
 
 Then edit `.env`. Everything has a working default. Only fill in Cloudinary if you want cloud image storage and phone capture:
 
@@ -103,10 +128,24 @@ These are in the Cloudinary console under **Settings → API Keys**. The secret 
 
 ## Running
 
+Two terminals, both in the project folder:
+
+```powershell
+# Terminal 1: API server + web app
+npm run dev
+
+# Terminal 2: demo dashboard
+.venv\Scripts\Activate.ps1          # macOS/Linux: source .venv/bin/activate
+npm run demo
+```
+
+Then open **http://localhost:8501**. Ollama must be running (it starts with Windows by default; otherwise launch the Ollama app or run `ollama serve`).
+
 | Command | What it does |
 |---|---|
+| `.\start-demo.ps1` | Windows: checks Ollama, installs what's missing, starts the server and the dashboard |
 | `npm run dev` | API server (`:8787`, auto-reload) + web app (`:5173`) |
-| `npm run demo` | Streamlit dashboard (`:8501`), needs `npm run dev` running |
+| `npm run demo` | Streamlit dashboard (`:8501`), needs `npm run dev` running and the Python environment active |
 | `npm start` | Production: build the web app, serve everything from `:8787` |
 | `npm test` | Unit tests (no model needed, about 1 s) |
 | `npm run test:eval` | Extraction accuracy on 6 cases against the running server + model |
@@ -231,7 +270,7 @@ All in `.env` (see [.env.example](.env.example)):
 ## Testing
 
 ```bash
-npm test                 # 19 deterministic tests: matching, schema validation, relationship fixes,
+npm test                 # 22 deterministic tests: matching, schema validation, relationship fixes,
                          # minutes parser on the demo minutes, status history, dashboard views
 npm run test:eval        # 6 extraction cases (text, alias merge, org chart, process flow, diagram + notes)
 npm run test:scenario    # 4 meetings + 2 photos, 13 checks on the resulting dashboard
@@ -266,9 +305,11 @@ server/
 src/                  React + React Flow graph editor (web app)
   shared/schema.ts    types + Zod schemas shared by client and server
 demo/
-  streamlit_app.py    corporate dashboard demo
-  minutes/            the 4-meeting demo story + whiteboard / sprint-board photos
+  streamlit_app.py    dashboard demo: any project, sample stories, webcam capture
+  scenarios/          sample stories: one folder each (payments-migration, office-relocation)
+  requirements.txt    Python packages for the dashboard
 tests/                unit tests, extraction eval dataset, end-to-end scenario
+start-demo.ps1        one-command launcher (Windows)
 ```
 
 ---

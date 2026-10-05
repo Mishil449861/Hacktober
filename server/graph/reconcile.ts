@@ -70,6 +70,7 @@ export function compatibleTypes(a: string, b: string) {
 }
 
 const contentTokens = (s: string) => normalize(s).split(' ').filter(Boolean)
+const e_verb = (e: GraphNode) => contentTokens(e.label)[0]
 
 /**
  * Deterministic same-entity rules that fuzzy similarity misses:
@@ -102,8 +103,12 @@ export async function mergeExtraction(workspaceId: string, sourceId: string, x: 
   // 1. Deterministic pass: exact / alias / high-similarity match.
   for (const n of x.nodes) {
     const pool = existing.filter((e) => compatibleTypes(e.type, n.type))
+    const verb = contentTokens(n.label)[0]
     const scored = pool
       .map((e) => ({ e, score: Math.max(similarity(n.label, e.label), ...e.aliases.map((a) => similarity(n.label, a))) }))
+      // Action items that share an object but not the verb are different tasks
+      // ("Order the network equipment" vs "Escalate the network equipment delivery"): no fuzzy match.
+      .filter((s) => n.type !== 'TASK' || s.score >= MATCH_AT || [e_verb(s.e)].includes(verb))
       .sort((a, b) => b.score - a.score)
     const best = scored[0]
     const rule = !best || best.score < MATCH_AT ? ruleMatch(n.label, n.type, pool) : undefined

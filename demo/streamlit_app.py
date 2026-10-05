@@ -1,15 +1,19 @@
 """
 OrgMap AI: meeting notes -> live project dashboard (Streamlit demo).
 
-Story: a payments migration program. Each meeting's minutes (and whiteboard / sprint-board photos)
-are merged into one map; the dashboard (action items, blockers, trend) updates after every meeting.
+Works for any project, from one laptop:
+  - create a project with any name
+  - add notes by pasting text, uploading .md/.txt files or photos, or using the laptop's webcam
+  - or click through a sample story: every folder in demo/scenarios/ is one (see README)
 
-    npm run dev                                   # terminal 1: API + local models
-    streamlit run demo/streamlit_app.py           # terminal 2: this demo
+    npm run dev        # terminal 1: API + local models
+    npm run demo       # terminal 2: this page
 """
 from __future__ import annotations
 
+import datetime as dt
 import os
+import re
 import time
 from pathlib import Path
 
@@ -19,21 +23,15 @@ import requests
 import streamlit as st
 
 API = os.environ.get("ORGMAP_API", "http://localhost:8787")
-MINUTES = Path(__file__).parent / "minutes"
-SERIES = "Payments Platform Migration"
-
-# Scripted meetings: (title, date, minutes file, optional photo)
-SCRIPT = [
-    ("Kickoff", "2026-09-08", "01-kickoff.md", None),
-    ("Architecture review", "2026-09-15", "02-architecture-review.md", "02-whiteboard.png"),
-    ("Weekly sync", "2026-09-22", "03-weekly-sync.md", None),
-    ("Steering committee", "2026-09-29", "04-steering-committee.md", "04-sprint-board.png"),
-]
+SCENARIOS = Path(__file__).parent / "scenarios"
+IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp"}
+TEXT_EXT = {".md", ".txt"}
 
 BLUE, ORANGE = "#2a78d6", "#eb6834"  # categorical slots 1-2
 STATUS_ICON = {"DONE": "✅ Done", "RESOLVED": "✅ Resolved", "IN_PROGRESS": "🟡 In progress", "OPEN": "⚪ Open", "CANCELLED": "Cancelled"}
 
 
+# ------------------------------------------------------------------ API
 def api(method: str, path: str, **kw):
     r = requests.request(method, API + path, timeout=60, **kw)
     if not r.ok:
@@ -41,14 +39,15 @@ def api(method: str, path: str, **kw):
     return r.json() if r.headers.get("content-type", "").startswith("application/json") else r.text
 
 
-def add_meeting(ws_id: str, title: str, date: str, text: str | None, photo: tuple[str, bytes] | None):
-    if text:
+def add_notes(ws_id: str, title: str, date: str, text: str | None, photos: list[tuple[str, bytes]]):
+    """One meeting = optional minutes text + any number of photos, all dated the same day."""
+    if text and text.strip():
         api("POST", f"/api/workspaces/{ws_id}/sources", data={"text": text, "name": f"{date} · {title}", "date": date})
-    if photo:
-        name, data = photo
-        ext = Path(name).suffix.lower() or ".png"
+    for i, (name, data) in enumerate(photos):
+        ext = Path(name).suffix.lower() if Path(name).suffix.lower() in IMAGE_EXT else ".png"
+        label = f"{date} · {title} (photo{'' if len(photos) == 1 else ' ' + str(i + 1)}){ext}"
         api("POST", f"/api/workspaces/{ws_id}/sources", data={"date": date},
-            files={"files": (f"{date} · {title} (photo){ext}", data, f"image/{ext.lstrip('.').replace('jpg', 'jpeg')}")})
+            files={"files": (label, data, f"image/{ext.lstrip('.').replace('jpg', 'jpeg')}")})
 
 
 def wait_idle(ws_id: str):
@@ -64,6 +63,54 @@ def wait_idle(ws_id: str):
             time.sleep(2)
 
 
+# ------------------------------------------------------------------ sample stories
+def pretty(name: str) -> str:
+    return re.sub(r"[-_]+", " ", name).strip().capitalize()
+
+
+@st.cache_data(ttl=10)
+def load_scenarios() -> dict[str, dict]:
+    """
+    Every folder in demo/scenarios is a story. Files are grouped into steps by their leading number:
+        01-kickoff.md            minutes ("# Project: Meeting title" and "**Date:** YYYY-MM-DD" are picked up)
+        02-review.md + 02-*.png  minutes with one or more photos
+        03-board.jpg             a photo on its own
+    """
+    out: dict[str, dict] = {}
+    if not SCENARIOS.is_dir():
+        return out
+    for folder in sorted(p for p in SCENARIOS.iterdir() if p.is_dir()):
+        steps: dict[str, dict] = {}
+        project = None
+        for f in sorted(folder.iterdir()):
+            m = re.match(r"^(\d+)[-_ ]?(.*)$", f.stem)
+            ext = f.suffix.lower()
+            if not m or ext not in IMAGE_EXT | TEXT_EXT:
+                continue
+            step = steps.setdefault(m.group(1), {"title": None, "date": None, "text": None, "photos": []})
+            if ext in TEXT_EXT:
+                text = f.read_text(encoding="utf8")
+                step["text"] = str(f)
+                head = re.search(r"^#\s+(.+)$", text, re.M)
+                if head:
+                    parts = head.group(1).split(":", 1)
+                    step["title"] = parts[-1].strip()
+                    project = project or (parts[0].strip() if len(parts) == 2 else None)
+                date = re.search(r"\*{0,2}Date:?\*{0,2}:?\s*(\d{4}-\d{2}-\d{2})", text, re.I)
+                step["date"] = date.group(1) if date else None
+                step["title"] = step["title"] or pretty(m.group(2))
+            else:
+                step["photos"].append(str(f))
+                step["title"] = step["title"] or pretty(m.group(2))
+        ordered = [steps[k] for k in sorted(steps, key=int)]
+        last = dt.date.today().isoformat()
+        for s in ordered:  # photo-only steps inherit the previous step's date
+            s["date"] = last = s["date"] or last
+        if ordered:
+            out[project or pretty(folder.name)] = {"folder": folder.name, "steps": ordered}
+    return out
+
+
 # ------------------------------------------------------------------ page
 st.set_page_config(page_title="OrgMap AI", layout="wide")
 
@@ -74,33 +121,58 @@ except Exception as e:  # noqa: BLE001
     st.stop()
 
 ss = st.session_state
+scenarios = load_scenarios()
 workspaces = api("GET", "/api/workspaces")
+by_id = {w["id"]: w for w in workspaces}
 
 with st.sidebar:
     st.header("OrgMap AI")
-    names = [w["name"] for w in workspaces]
+    # A widget's state can't be changed after it is drawn, so "select this project" requests
+    # (create / reset) are parked in `next_project` and applied here, before the selectbox exists.
+    if "next_project" in ss:
+        ss.project = ss.pop("next_project")
+    if ss.get("project") not in by_id:
+        ss.pop("project", None)
     ws = None
     if workspaces:
-        default = names.index(SERIES) if SERIES in names else 0
-        ws = workspaces[st.selectbox("Project", range(len(workspaces)), index=default, format_func=lambda i: names[i])]
-    if SERIES not in names and st.button(f"Create “{SERIES}”", type="primary"):
-        api("POST", "/api/workspaces", json={"name": SERIES})
-        st.rerun()
-    if ws and ws["name"] == SERIES and st.button("Reset demo"):
-        api("DELETE", f"/api/workspaces/{ws['id']}")
-        api("POST", "/api/workspaces", json={"name": SERIES})
-        st.rerun()
+        ws = by_id[st.selectbox("Project", list(by_id), format_func=lambda i: by_id[i]["name"], key="project")]
+
+    with st.expander("➕ New project", expanded=not workspaces):
+        story = st.selectbox("Start from", ["A blank project", *scenarios], help="Sample stories come from demo/scenarios/")
+        default = "" if story == "A blank project" else story
+        new_name = st.text_input("Project name", default, placeholder="e.g. Q4 product launch", key=f"new-name-{story}")
+        taken = new_name.strip() in {w["name"] for w in workspaces}
+        if taken:
+            st.caption("A project with this name already exists.")
+        if st.button("Create project", type="primary", disabled=not new_name.strip() or taken):
+            ss.next_project = api("POST", "/api/workspaces", json={"name": new_name.strip()})["id"]
+            st.rerun()
+
+    if ws:
+        with st.expander("Reset / delete this project"):
+            st.caption("Removes its notes, photos and map.")
+            c_a, c_b = st.columns(2)
+            if c_a.button("Reset"):
+                api("DELETE", f"/api/workspaces/{ws['id']}")
+                ss.next_project = api("POST", "/api/workspaces", json={"name": ws["name"]})["id"]
+                st.rerun()
+            if c_b.button("Delete"):
+                api("DELETE", f"/api/workspaces/{ws['id']}")
+                st.rerun()
+
     st.divider()
     inbox = status.get("inbox") or {}
     if inbox.get("enabled"):
-        st.markdown(f"📷 **Phone capture**  \n[{inbox['captureUrls'][0]}]({inbox['captureUrls'][0]})")
-        st.caption("Open on a phone on the same Wi-Fi. Photos go to Cloudinary and appear here automatically.")
-    st.caption(f"Model: {status.get('visionModel') or status.get('textModel')} (local)  \n"
+        st.markdown(f"📷 **Phone capture (optional)**  \n[{inbox['captureUrls'][0]}]({inbox['captureUrls'][0]})")
+        st.caption("A phone on the same Wi-Fi can send photos too. They appear here automatically.")
+    st.caption(f"Model: {status.get('visionModel') or status.get('textModel') or 'none found'} (local)  \n"
                f"Images: {'Cloudinary' if status['cloudinary'] else 'local disk'}")
+    for note in status["notes"]:
+        st.caption(f"⚠️ {note}")
 
 if not ws:
     st.title("OrgMap AI")
-    st.info("Create the demo project in the sidebar to start.")
+    st.info("Create a project in the sidebar: a blank one for your own notes, or one of the sample stories.")
     st.stop()
 
 views = api("GET", f"/api/workspaces/{ws['id']}/views")
@@ -110,10 +182,10 @@ st.title(ws["name"])
 
 @st.fragment(run_every=5)
 def live_refresh(ws_id: str):
-    """Rerun the page when a phone photo lands or an analysis finishes."""
+    """Rerun the page when a photo arrives from elsewhere or an analysis finishes."""
     s = api("GET", f"/api/workspaces/{ws_id}")
-    sig = tuple((x["id"], x["status"]) for x in s["sources"])
-    if ss.get("sig") not in (None, sig):
+    sig = (ws_id, tuple((x["id"], x["status"]) for x in s["sources"]))
+    if ss.get("sig") is not None and ss.sig[0] == ws_id and ss.sig != sig:
         ss.sig = sig
         st.rerun(scope="app")
     ss.sig = sig
@@ -133,42 +205,71 @@ c2.metric("Overdue", k["overdueActions"], delta_color="inverse")
 c3.metric("Open blockers", k["openBlockers"], None if not prev else trend[-1]["openBlockers"] - prev["openBlockers"], delta_color="inverse")
 c4.metric("Decisions logged", k["decisions"], None if not prev else trend[-1]["decisions"] - prev["decisions"])
 
-tab_run, tab_dash, tab_map, tab_report = st.tabs(["▶ Add meetings", "📊 Dashboard", "🗺️ Map", "📄 Status report"])
+tab_add, tab_dash, tab_map, tab_report = st.tabs(["➕ Add notes", "📊 Dashboard", "🗺️ Map", "📄 Status report"])
 
-# ---- 1. add meetings
-with tab_run:
+# ---- 1. add notes
+with tab_add:
     done_names = {c["name"] for c in views["changes"]}
-    left, right = st.columns([1, 1])
-    with left:
-        st.subheader("Scripted demo")
-        nxt = next((m for m in SCRIPT if f"{m[1]} · {m[0]}" not in done_names), None)
-        for title, date, _, photo in SCRIPT:
-            mark = "✅" if f"{date} · {title}" in done_names else ("▶️" if nxt and nxt[0] == title else "○")
-            st.markdown(f"{mark} **{date}**, {title}{' + 📷 photo' if photo else ''}")
-        if nxt and st.button(f"Add next meeting: {nxt[0]}", type="primary"):
-            photo = (nxt[3], (MINUTES / nxt[3]).read_bytes()) if nxt[3] else None
-            add_meeting(ws["id"], nxt[0], nxt[1], (MINUTES / nxt[2]).read_text(encoding="utf8"), photo)
-            wait_idle(ws["id"])
-            st.rerun()
-        if nxt:
-            with st.expander(f"Preview: {nxt[0]} minutes"):
-                st.markdown((MINUTES / nxt[2]).read_text(encoding="utf8"))
-                if nxt[3]:
-                    st.image(str(MINUTES / nxt[3]))
-        else:
-            st.success("All scripted meetings added. Try your own notes, or a phone photo.")
-    with right:
-        st.subheader("Your own notes")
-        title = st.text_input("Meeting", "Ad-hoc sync")
-        date = st.date_input("Date").isoformat()
-        text = st.text_area("Minutes", height=160, placeholder="- Raj: fix the login bug (due 2026-10-09)\n- Decision: ...\n- The PCI audit is done.")
-        up = st.file_uploader("Whiteboard / sprint-board photo", type=["png", "jpg", "jpeg", "webp"])
-        if st.button("Add to project", disabled=not (text.strip() or up)):
-            add_meeting(ws["id"], title, date, text.strip() or None, (up.name, up.getvalue()) if up else None)
+    own, sample = st.columns([1, 1])
+
+    with own:
+        st.subheader("Your notes")
+        c_t, c_d = st.columns([2, 1])
+        title = c_t.text_input("Meeting / topic", "Team sync")
+        date = c_d.date_input("Date").isoformat()
+        text = st.text_area("Minutes or notes", height=170, placeholder=(
+            "Plain sentences work. These patterns are read exactly:\n"
+            "- Raj Patel: fix the login bug (due 2026-10-09)\n"
+            "- Decision: ship on Friday.\n"
+            "- The PCI audit is done.\n"
+            "- Priya reports to Ana."))
+        files = st.file_uploader("Or upload notes (.md, .txt) and photos of whiteboards, slides, sticky notes",
+                                 type=["md", "txt", "png", "jpg", "jpeg", "webp"], accept_multiple_files=True)
+        shot = st.camera_input("Photograph the whiteboard") if st.toggle("Use this laptop's camera") else None
+
+        uploads = files or []
+        texts = [text] + [f.getvalue().decode("utf8", errors="replace") for f in uploads if Path(f.name).suffix.lower() in TEXT_EXT]
+        photos = [(f.name, f.getvalue()) for f in uploads if Path(f.name).suffix.lower() in IMAGE_EXT]
+        if shot:
+            photos.append(("camera.jpg", shot.getvalue()))
+        combined = "\n\n".join(t for t in texts if t.strip())
+        name = f"{date} · {title or 'Notes'}"
+        if combined and name in done_names:
+            st.caption("Notes with this meeting name and date already exist. Change the name or date to add another.")
+        if st.button("Add to project", type="primary", disabled=not (combined or photos) or (bool(combined) and name in done_names)):
+            add_notes(ws["id"], title or "Notes", date, combined, photos)
             wait_idle(ws["id"])
             st.rerun()
 
-    # What the latest meeting changed
+    with sample:
+        st.subheader("Sample story")
+        if not scenarios:
+            st.caption("No sample stories found. Add a folder to demo/scenarios/ (see README).")
+        else:
+            names = list(scenarios)
+            pick = st.selectbox("Story", names, index=names.index(ws["name"]) if ws["name"] in names else 0,
+                                help="Each folder in demo/scenarios/ is a story. Add your own to script a demo.")
+            steps = scenarios[pick]["steps"]
+            key = lambda s: f"{s['date']} · {s['title']}"  # noqa: E731
+            is_done = lambda s: key(s) in done_names or any(n.startswith(key(s) + " (photo") for n in done_names)  # noqa: E731
+            nxt = next((s for s in steps if not is_done(s)), None)
+            for s in steps:
+                mark = "✅" if is_done(s) else ("▶️" if s is nxt else "○")
+                st.markdown(f"{mark} **{s['date']}**, {s['title']}{' + 📷' * len(s['photos'])}")
+            if nxt and st.button(f"Add next: {nxt['title']}", type="primary"):
+                body = Path(nxt["text"]).read_text(encoding="utf8") if nxt["text"] else None
+                add_notes(ws["id"], nxt["title"], nxt["date"], body, [(Path(p).name, Path(p).read_bytes()) for p in nxt["photos"]])
+                wait_idle(ws["id"])
+                st.rerun()
+            if nxt:
+                with st.expander(f"Preview: {nxt['title']}"):
+                    if nxt["text"]:
+                        st.markdown(Path(nxt["text"]).read_text(encoding="utf8"))
+                    for p in nxt["photos"]:
+                        st.image(p)
+            else:
+                st.success("Story complete. Keep going with your own notes on the left.")
+
     latest = [c for c in views["changes"] if c["status"] == "DONE"][-3:]
     if latest:
         st.subheader("What changed")
@@ -182,10 +283,15 @@ with tab_run:
                     st.markdown(" · ".join(bits))
                 if new:
                     st.caption(f"New: {new}")
+    failed = [c for c in views["changes"] if c["status"] == "ERROR"]
+    for c in failed:
+        st.warning(f"Could not read “{c['name']}”. Open the web app (localhost:5173) to retry or remove it.")
 
 # ---- 2. dashboard
 with tab_dash:
-    if trend:
+    if not views["changes"]:
+        st.info("Nothing here yet. Add notes or a photo on the first tab.")
+    if len(trend) > 1:
         df = pd.DataFrame(trend)
         long = df.melt(id_vars=["date"], value_vars=["openActions", "openBlockers"], var_name="series", value_name="count")
         long["series"] = long["series"].map({"openActions": "Open action items", "openBlockers": "Open blockers"})
@@ -200,7 +306,7 @@ with tab_dash:
             )
             .properties(height=220, title="Open items after each meeting")
         )
-        st.altair_chart(chart, use_container_width=True)
+        st.altair_chart(chart, width="stretch")
 
     a_col, b_col = st.columns([3, 2])
     with a_col:
@@ -209,7 +315,10 @@ with tab_dash:
             "Status": "🔴 Overdue" if a["overdue"] else STATUS_ICON.get(a["status"], a["status"]),
             "Action": a["label"], "Owner": ", ".join(a["owners"]) or "-", "Due": a["due"] or "-",
         } for a in views["actionItems"]]
-        st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True) if rows else st.caption("None yet.")
+        if rows:
+            st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+        else:
+            st.caption("None yet.")
     with b_col:
         st.subheader("Blockers & risks")
         rows = [{
@@ -217,18 +326,24 @@ with tab_dash:
             "Blocker": b["label"], "Blocks": ", ".join(b["blocks"]) or "-",
             "Age": f"{b['ageDays']}d",
         } for b in views["blockers"]]
-        st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True) if rows else st.caption("None yet.")
-        st.subheader("Milestones")
-        for m in views["milestones"]:
-            slip = f" · ⚠️ slipped {m['slipDays']}d (was {m['originalDate']})" if m["slipDays"] > 0 else ""
-            st.markdown(f"**{m['label']}**: {m['date'] or 'no date'}{slip}")
+        if rows:
+            st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+        else:
+            st.caption("None yet.")
+        if views["milestones"]:
+            st.subheader("Milestones")
+            for m in views["milestones"]:
+                slip = f" · ⚠️ slipped {m['slipDays']}d (was {m['originalDate']})" if m["slipDays"] > 0 else ""
+                st.markdown(f"**{m['label']}**: {m['date'] or 'no date'}{slip}")
 
 # ---- 3. map
 with tab_map:
     s = api("GET", f"/api/workspaces/{ws['id']}")
     colors = {"PERSON": "#e8590c", "TEAM": "#d6336c", "SYSTEM": "#1c7ed6", "COMPONENT": "#1098ad", "TASK": "#0c8599",
-              "BLOCKER": "#e03131", "DECISION": "#f59f00", "MILESTONE": "#ae3ec9", "PROJECT": "#7048e8", "PROCESS": "#37b24d"}
-    show = st.multiselect("Show", list(colors), default=["PERSON", "TEAM", "SYSTEM", "COMPONENT", "BLOCKER", "MILESTONE", "PROJECT", "PROCESS"])
+              "BLOCKER": "#e03131", "DECISION": "#f59f00", "MILESTONE": "#ae3ec9", "PROJECT": "#7048e8", "PROCESS": "#37b24d",
+              "DOCUMENT": "#868e96", "OTHER": "#495057"}
+    present = [t for t in colors if any(n["type"] == t for n in s["nodes"])]
+    show = st.multiselect("Show", present, default=[t for t in present if t not in ("TASK", "DECISION")])
     nodes = [n for n in s["nodes"] if n["type"] in show]
     ids = {n["id"] for n in nodes}
     dot = ['digraph G { rankdir=LR; bgcolor="transparent"; node [shape=box style="rounded,filled" fillcolor=white fontname=Helvetica fontsize=11]; edge [fontname=Helvetica fontsize=9 color="#888888"];']
@@ -236,16 +351,19 @@ with tab_map:
         done = n.get("status") in ("DONE", "RESOLVED")
         label = n["label"].replace('"', "'") + "\\n" + n["type"].lower() + (" ✓" if done else "")
         style = ' style="rounded,filled,dashed"' if done else ""
-        color = colors.get(n["type"], "#495057")
-        dot.append(f'"{n["id"]}" [label="{label}" color="{color}" penwidth=2{style}];')
+        dot.append(f'"{n["id"]}" [label="{label}" color="{colors.get(n["type"], "#495057")}" penwidth=2{style}];')
     for e in s["edges"]:
         if e["source"] in ids and e["target"] in ids:
             dot.append(f'"{e["source"]}" -> "{e["target"]}" [label="{e["relationship"].replace("_", " ").lower()}"];')
     dot.append("}")
-    st.graphviz_chart("\n".join(dot), use_container_width=True)
+    if nodes:
+        st.graphviz_chart("\n".join(dot), width="stretch")
+    else:
+        st.info("The map is empty.")
+    st.caption("Drag, edit and merge nodes in the full editor: http://localhost:5173")
 
 # ---- 4. report
 with tab_report:
     md = api("GET", f"/api/workspaces/{ws['id']}/report.md")
-    st.download_button("Download report (.md)", md, file_name="status-report.md")
+    st.download_button("Download report (.md)", md, file_name=f"{re.sub(r'[^a-z0-9]+', '-', ws['name'].lower()).strip('-')}-status.md")
     st.markdown(md)

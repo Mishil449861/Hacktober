@@ -21,13 +21,25 @@ let db: Db = fs.existsSync(DB_FILE)
   : { workspaces: [], sources: [], nodes: [], edges: [] }
 
 let writeTimer: NodeJS.Timeout | undefined
+/** Set while the last save failed (e.g. disk full); shown in /api/status. The data stays in memory. */
+export let persistError: string | undefined
+
 /** Debounced atomic write: temp file + rename so a crash never leaves a half-written db. */
 export function persist() {
   clearTimeout(writeTimer)
   writeTimer = setTimeout(() => {
     const tmp = DB_FILE + '.tmp'
-    fs.writeFileSync(tmp, JSON.stringify(db, null, 2))
-    fs.renameSync(tmp, DB_FILE)
+    try {
+      fs.writeFileSync(tmp, JSON.stringify(db, null, 2))
+      fs.renameSync(tmp, DB_FILE)
+      persistError = undefined
+    } catch (e) {
+      // A full disk must not take the server down: keep serving from memory and retry shortly.
+      const code = (e as NodeJS.ErrnoException).code
+      persistError = code === 'ENOSPC' ? 'Disk is full: changes are not being saved. Free up disk space.' : `Could not save data: ${(e as Error).message}`
+      console.error('[store]', persistError)
+      writeTimer = setTimeout(persist, 15_000)
+    }
   }, 100)
 }
 

@@ -178,12 +178,18 @@ export function parseMinutes(text: string, ctx: { meetingDate?: string; knownEnt
       if (target && status) { addNode(target.label, target.type, { status }); continue }
     }
 
-    if (!isItem) continue
+    // Action items also appear without an "Action items" heading: "TODO: ...", "Action: ...", or a
+    // bullet with an owner and a due date ("- Dana Kim: book the venue (due 2026-10-20)").
+    const todo = item.match(/^(?:todo|to do|action(?: item)?|ai)\s*[:\-–]\s*(.+)$/i)
+    const due = item.match(new RegExp(`\\(?\\s*(?:due|by)\\s*(${DATE.source})\\s*\\)?`, 'i'))
+    const ownerFirst = new RegExp(`^(${NAME}|[A-Z][A-Za-z ]*Team)\\s*[:\\-–]\\s*\\S`).test(item)
+    const looseTask = !!todo || (isItem && !!due && ownerFirst && !['milestones', 'risks', 'decisions', 'updates'].includes(section))
 
-    if (section === 'actions') {
+    if (!isItem && !todo) continue
+
+    if (section === 'actions' || looseTask) {
       // "Raj Patel: draft the target architecture (due 2026-09-12)." / "Raj to draft ..."
-      const due = item.match(new RegExp(`\\(?\\s*(?:due|by)\\s*(${DATE.source})\\s*\\)?`, 'i'))
-      let body = item.replace(due?.[0] ?? '', '')
+      let body = (todo ? todo[1] : item).replace(due?.[0] ?? '', '')
       let owner: string | undefined
       const colon = body.match(new RegExp(`^(${NAME}|[A-Z][A-Za-z ]*Team)\\s*[:\\-–]\\s*(.+)$`))
       const to = body.match(new RegExp(`^(${NAME}) (?:to|will) (.+)$`))
@@ -224,9 +230,12 @@ export function parseMinutes(text: string, ctx: { meetingDate?: string; knownEnt
  * Merge model output with parsed structure. The parser wins for the types its sections covered and
  * for explicit reporting lines; the model contributes everything else (systems, ownership, flows).
  */
-export function combineWithModel(model: Extraction, parsed: ParsedMinutes): Extraction {
+export function combineWithModel(model: Extraction, parsed: ParsedMinutes, sourceText = ''): Extraction {
+  const hasDecisionLanguage = !sourceText || /\b(decid\w*|decisions?|agreed|we will|going with|chose|chosen)\b/i.test(sourceText)
   const replaced = (n: XNode) =>
     parsed.covers.has(n.type) ||
+    // The model turns status updates into "decisions"; keep its decisions only if the text has decision language.
+    (n.type === 'DECISION' && !hasDecisionLanguage) ||
     parsed.nodes.some((p) => p.type === n.type && (normalize(p.label) === normalize(n.label) || similarity(p.label, n.label) >= 0.75)) ||
     // "Action item: Sarah Chen"-style junk labels
     /^(action items?|decision|blocker|risk|milestone)\s*[:\-]/i.test(n.label)

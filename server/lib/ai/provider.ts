@@ -205,7 +205,7 @@ export async function analyzeText(text: string, context?: string, ctx: AnalysisC
     console.warn('[ai] model extraction failed, using minutes parser only:', (e as Error).message)
     return { extraction: sanitize(combineWithModel({ summary: '', nodes: [], edges: [], ambiguities: ['Model extraction failed; structured items only.'] }, parsed), ctx.knownEntities), model: 'minutes parser (model failed)' }
   }
-  const extraction = combineWithModel(dropLeakedDates(raw, text, ctx.meetingDate), parsed)
+  const extraction = combineWithModel(dropLeakedDates(raw, text, ctx.meetingDate), parsed, text)
   return { extraction: sanitize(extraction, ctx.knownEntities), model: parsed.nodes.length ? `${model} + minutes parser` : model }
 }
 

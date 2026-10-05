@@ -42,5 +42,5 @@ pnpm-debug.log*
 Thumbs.db
 desktop.ini
 
-# ---- Claude Code local settings ----
-.claude/settings.local.json
+# ---- local tool settings (per-machine command approvals) ----
+.claude/

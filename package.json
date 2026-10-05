@@ -11,7 +11,7 @@
     "dev": "concurrently -k -n api,web -c blue,green \"tsx watch --ignore data/** server/index.ts\" \"vite\"",
     "server": "tsx server/index.ts",
     "start": "vite build && tsx server/index.ts",
-    "demo": "streamlit run demo/streamlit_app.py",
+    "demo": "python -m streamlit run demo/streamlit_app.py",
     "test": "tsx --test tests/unit.test.ts tests/views.test.ts tests/minutes.test.ts",
     "test:eval": "tsx tests/eval.ts",
     "test:scenario": "tsx tests/scenario.ts",

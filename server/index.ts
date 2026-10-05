@@ -9,13 +9,15 @@ import { analysisUrl, cloudName, cloudinaryEnabled, deleteImage, previewUrl, thu
 import { analyzeImage, analyzeText, systemInfo } from './lib/ai/provider.ts'
 import { deriveState, mergeExtraction, mergeNodes, retractHistory } from './graph/reconcile.ts'
 import { buildReport, buildViews } from './views.ts'
-import { newId, now, persist, store, UPLOAD_DIR } from './store.ts'
+import { newId, now, persist, persistError, store, UPLOAD_DIR } from './store.ts'
 import { ensureInboxFolder, inboxFolder, inboxState, INBOX_ROOT, pollNow, signInboxUpload, startInbox } from './inbox.ts'
 import { capturePage } from './capture.ts'
 
 const port = Number(process.env.PORT ?? 8787)
 const app = express()
 app.use(express.json({ limit: '2mb' }))
+// Text-only sources may arrive as a plain form post (e.g. Python `requests.post(data=...)`), not multipart.
+app.use(express.urlencoded({ extended: false, limit: '2mb' }))
 app.use('/uploads', express.static(UPLOAD_DIR))
 
 const IMAGE_EXT = /\.(jpe?g|png|webp)$/i
@@ -35,6 +37,7 @@ app.get('/api/status', wrap(async (_req, res) => {
   if (!ai.reachable) notes.push('Local model runtime is not reachable. Start Ollama.')
   if (ai.reachable && !ai.visionModel) notes.push('No local vision model found. Images use OCR + text model fallback.')
   if (!cloudinaryEnabled) notes.push('Cloudinary not configured. Images are stored locally.')
+  if (persistError) notes.push(persistError)
   const status: SystemStatus = {
     ...ai,
     ocr: process.env.OCR_ENABLED === 'false' ? 'disabled' : 'tesseract.js (local)',
@@ -125,6 +128,8 @@ app.post('/api/workspaces/:id/sources', upload.array('files', 20), wrap(async (r
     created.push({ ...base, id: newId(), type: 'TEXT', name: String(req.body.name || text.slice(0, 40).replace(/\s+/g, ' ') + '…'), text })
   }
   for (const f of (req.files as Express.Multer.File[]) ?? []) {
+    // multer decodes multipart filenames as latin1; re-decode so "·", accents, CJK etc. survive.
+    f.originalname = Buffer.from(f.originalname, 'latin1').toString('utf8')
     if (TEXT_EXT.test(f.originalname)) {
       created.push({ ...base, id: newId(), type: 'TEXT_FILE', name: f.originalname, text: f.buffer.toString('utf8') })
     } else if (IMAGE_EXT.test(f.originalname)) {
