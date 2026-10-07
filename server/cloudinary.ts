@@ -17,10 +17,12 @@ if (cloudinaryEnabled) {
   })
 }
 
-export function uploadImage(buffer: Buffer, folder: string): Promise<CloudinaryAsset> {
+/** `displayName` is what the Media Library shows, so the photo is recognizable there (not a random id). */
+export function uploadImage(buffer: Buffer, folder: string, displayName?: string): Promise<CloudinaryAsset> {
+  const name = displayName?.replace(/\.[a-z0-9]+$/i, '').replace(/[^\w .()·-]+/g, ' ').trim().slice(0, 120)
   return new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
-      { folder, resource_type: 'image' },
+      { folder, resource_type: 'image', ...(name ? { display_name: `OrgMap ${name}` } : {}) },
       (err, res?: UploadApiResponse) => {
         if (err || !res) return reject(err ?? new Error('Cloudinary upload failed'))
         resolve({

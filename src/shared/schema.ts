@@ -159,6 +159,8 @@ export interface Source {
   localFile?: string
   previewUrl?: string
   thumbUrl?: string
+  /** Cloudinary derivative the local model actually reads: resized, auto-improved, sharpened. */
+  analysisUrl?: string
   summary?: string
   ambiguities?: string[]
   ocrText?: string

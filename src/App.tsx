@@ -59,7 +59,7 @@ export default function App() {
   useEffect(() => {
     if (!state) return
     const fresh = state.sources.filter((s) => s.origin === 'inbox' && !seenSources.current.has(s.id))
-    if (seenSources.current.size && fresh.length) flash(`📷 New photo from Cloudinary inbox: ${fresh[0].name}`)
+    if (seenSources.current.size && fresh.length) flash(`New photo from Cloudinary inbox: ${fresh[0].name}`)
     for (const s of state.sources) seenSources.current.add(s.id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state])
@@ -119,13 +119,13 @@ export default function App() {
         {status?.inbox?.enabled && (
           <a className="capture-link" href={status.inbox.captureUrls[0]} target="_blank" rel="noreferrer"
             title={`Open on a phone (same Wi-Fi):\n${status.inbox.captureUrls.join('\n')}\n\nOr drop photos into Cloudinary folder ${status.inbox.root}/<workspace>`}>
-            📷 Phone capture
+            Phone capture
           </a>
         )}
         {status && (
           <div className={`model-status ${status.reachable ? 'ok' : 'bad'}`} title={status.notes.join('\n')}>
             <b>{status.provider}</b> {status.reachable ? `text: ${status.textModel ?? '—'} · vision: ${status.visionModel ?? 'OCR fallback'}` : 'offline'}
-            {' · '}{status.cloudinary ? `☁ ${status.cloudName}` : 'local storage'}
+            {' · '}{status.cloudinary ? `Cloudinary: ${status.cloudName}` : 'local storage'}
           </div>
         )}
       </header>

@@ -94,8 +94,8 @@
     "id": "mixed-image-then-text",
     "description": "Architecture diagram, then markdown notes about the same systems",
     "sources": [
-      { "kind": "IMAGE", "file": "../../../demo/sources/architecture.png" },
-      { "kind": "TEXT_FILE", "file": "../../../demo/sources/kickoff-notes.md" }
+      { "kind": "IMAGE", "file": "../../fixtures/sources/architecture.png" },
+      { "kind": "TEXT_FILE", "file": "../../fixtures/sources/kickoff-notes.md" }
     ],
     "expectNodes": [
       { "label": "Frontend" },

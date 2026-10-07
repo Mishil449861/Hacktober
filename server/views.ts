@@ -223,19 +223,19 @@ export function buildReport(st: WorkspaceState, todayOverride?: string) {
   }
   L.push('## Action items', '', '| Status | Action | Owner | Due | Raised |', '|---|---|---|---|---|')
   for (const a of v.actionItems) {
-    const st = a.overdue ? '🔴 OVERDUE' : a.status === 'DONE' ? '✅ DONE' : a.status === 'IN_PROGRESS' ? '🟡 IN PROGRESS' : '⚪ OPEN'
+    const st = a.overdue ? 'OVERDUE' : a.status === 'DONE' ? 'DONE' : a.status === 'IN_PROGRESS' ? 'IN PROGRESS' : 'OPEN'
     L.push(`| ${st} | ${a.label} | ${a.owners.join(', ') || '_unassigned_'} | ${a.due ?? '-'} | ${a.raisedOn} |`)
   }
   if (!v.actionItems.length) L.push('| | _none recorded_ | | | |')
   L.push('', '## Blockers & risks', '')
   for (const b of v.blockers) {
-    const head = DONE.has(b.status) ? `✅ ~~${b.label}~~ (resolved ${b.resolvedOn ?? ''})` : `🔴 **${b.label}** (open ${b.ageDays}d)`
+    const head = DONE.has(b.status) ? `~~${b.label}~~ (resolved ${b.resolvedOn ?? ''})` : `**${b.label}** (open ${b.ageDays}d)`
     L.push(`- ${head}${b.blocks.length ? `, blocks ${b.blocks.join(', ')}` : ''}${b.owners.length ? `, owner ${b.owners.join(', ')}` : ''}`)
   }
   if (!v.blockers.length) L.push('- _none recorded_')
   L.push('', '## Milestones', '')
   for (const m of v.milestones) {
-    const slip = m.slips.length ? `, ⚠️ slipped ${m.slipDays}d (was ${m.originalDate})` : ''
+    const slip = m.slips.length ? `, slipped ${m.slipDays}d (was ${m.originalDate})` : ''
     L.push(`- **${m.label}**: ${m.date ?? 'no date'} · ${m.status}${slip}${m.blockedBy.length ? `, blocked by ${m.blockedBy.join(', ')}` : ''}`)
   }
   if (!v.milestones.length) L.push('- _none recorded_')
@@ -244,6 +244,6 @@ export function buildReport(st: WorkspaceState, todayOverride?: string) {
   if (!v.decisions.length) L.push('- _none recorded_')
   L.push('', '## Ownership', '')
   for (const o of v.ownership.owners) L.push(`- **${o}**: ${v.ownership.cells.filter((c) => c.owner === o).map((c) => c.asset).join(', ')}`)
-  if (v.ownership.unowned.length) L.push(`- ⚠️ No owner recorded: ${v.ownership.unowned.join(', ')}`)
+  if (v.ownership.unowned.length) L.push(`- No owner recorded: ${v.ownership.unowned.join(', ')}`)
   return L.join('\n')
 }

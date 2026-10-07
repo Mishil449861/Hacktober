@@ -10,7 +10,7 @@ import { analyzeImage, analyzeText, systemInfo } from './lib/ai/provider.ts'
 import { deriveState, mergeExtraction, mergeNodes, retractHistory } from './graph/reconcile.ts'
 import { buildReport, buildViews } from './views.ts'
 import { newId, now, persist, persistError, store, UPLOAD_DIR } from './store.ts'
-import { ensureInboxFolder, inboxFolder, inboxState, INBOX_ROOT, pollNow, signInboxUpload, startInbox } from './inbox.ts'
+import { ensureInboxFolder, inboxFolder, inboxState, INBOX_ROOT, pollNow, removeProjectFolders, signInboxUpload, startInbox } from './inbox.ts'
 import { capturePage } from './capture.ts'
 
 const port = Number(process.env.PORT ?? 8787)
@@ -93,7 +93,10 @@ app.post('/api/workspaces', (req, res) => {
 })
 app.delete('/api/workspaces/:id', wrap(async (req, res) => {
   // Remove the workspace's images from Cloudinary too (uploads and inbox photos).
+  const ws = store.db.workspaces.find((w) => w.id === req.params.id)
   for (const s of store.db.sources.filter((x) => x.workspaceId === req.params.id && x.cloudinary)) await deleteImage(s.cloudinary!.publicId)
+  // Also remove the project's (now empty) Cloudinary folders, so repeated resets don't litter the Media Library.
+  if (ws) await removeProjectFolders(ws)
   store.deleteWorkspace(String(req.params.id))
   res.json({ ok: true })
 }))
@@ -136,9 +139,10 @@ app.post('/api/workspaces/:id/sources', upload.array('files', 20), wrap(async (r
       const src: Source = { ...base, id: newId(), type: 'IMAGE', name: f.originalname }
       if (cloudinaryEnabled) {
         try {
-          src.cloudinary = await uploadImage(f.buffer, `orgmap/${workspaceId}`)
+          src.cloudinary = await uploadImage(f.buffer, `orgmap/${workspaceId}`, f.originalname)
           src.previewUrl = previewUrl(src.cloudinary.publicId)
           src.thumbUrl = thumbUrl(src.cloudinary.publicId)
+          src.analysisUrl = analysisUrl(src.cloudinary.publicId)
         } catch (e) {
           // Bad credentials / offline: keep working with local storage rather than failing the upload.
           console.warn('[cloudinary] upload failed, storing locally:', (e as { message?: string }).message ?? e)

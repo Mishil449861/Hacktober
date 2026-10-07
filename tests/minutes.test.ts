@@ -2,9 +2,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
-import { combineWithModel, parseMinutes, type KnownEntity } from '../server/lib/minutes.ts'
+import { combineWithModel, normalizeDates, parseMinutes, type KnownEntity } from '../server/lib/minutes.ts'
 
-const read = (f: string) => fs.readFileSync(`demo/scenarios/payments-migration/${f}`, 'utf8')
+const read = (f: string) => fs.readFileSync(`tests/fixtures/scenarios/payments-migration/${f}`, 'utf8')
 const labels = (p: ReturnType<typeof parseMinutes>, type: string) => p.nodes.filter((n) => n.type === type)
 const edge = (p: ReturnType<typeof parseMinutes>, from: string, rel: string, to: string) => p.edges.some((e) =>
   e.relationship === rel &&
@@ -97,6 +97,87 @@ test('free-form notes without headings: owner + due date bullets and TODO lines 
   assert.deepEqual(labels(p, 'DECISION').map((d) => d.label), ['Launch in Berlin'])
 })
 
+test('normalizeDates: month names, weekdays and relative days become ISO dates', () => {
+  const on = (s: string) => normalizeDates(s, '2026-10-06') // a Tuesday
+  assert.equal(on('book the venue by Oct 10'), 'book the venue by 2026-10-10')
+  assert.equal(on('due October 24th'), 'due 2026-10-24')
+  assert.equal(on('by 3 Nov 2027'), 'by 2027-11-03')
+  assert.equal(on('send it by Friday'), 'send it by 2026-10-09')
+  assert.equal(on('by Tuesday'), 'by 2026-10-13', 'the same weekday means next week')
+  assert.equal(on('due tomorrow'), 'due 2026-10-07')
+  assert.equal(on('kick-off is Jan 15'), 'kick-off is 2027-01-15', 'a long-past month means next year')
+  assert.equal(on('Maya may send 5 invites'), 'Maya may send 5 invites', 'lowercase "may" is not a month')
+})
+
+test('plain everyday notes: natural dates, "X will ...", and a later "has booked ... Done." update', () => {
+  const first = parseMinutes([
+    'Maya is planning the team offsite. Ben reports to Maya.',
+    '- Ben: book the venue by Oct 10',
+    '- Maya will send the invitations by Friday',
+    '- Decision: the offsite is on Oct 24.',
+  ].join('\n'), { meetingDate: '2026-10-06' })
+  assert.deepEqual(labels(first, 'TASK').map((t) => [t.label, t.date, t.status]), [
+    ['Book the venue', '2026-10-10', 'OPEN'],
+    ['Send the invitations', '2026-10-09', 'OPEN'],
+  ])
+  assert.ok(edge(first, 'Ben', 'RESPONSIBLE_FOR', 'Book the venue'))
+  assert.ok(edge(first, 'Maya', 'RESPONSIBLE_FOR', 'Send the invitations'))
+  assert.ok(edge(first, 'Ben', 'REPORTS_TO', 'Maya'))
+  assert.deepEqual(labels(first, 'DECISION').map((d) => d.label), ['The offsite is on Oct 24'], 'labels keep the original wording')
+  assert.ok(first.covers.has('TASK'), 'explicit action items make the parser the source of truth for tasks')
+
+  const known: KnownEntity[] = [
+    { label: 'Book the venue', type: 'TASK', status: 'OPEN' },
+    { label: 'Send the invitations', type: 'TASK', status: 'OPEN' },
+  ]
+  const second = parseMinutes([
+    'Ben has booked the venue. Done.',
+    'Chloe joins the team and reports to Maya.',
+    '- Chloe: order the catering by Oct 17',
+  ].join('\n'), { meetingDate: '2026-10-09', knownEntities: known })
+  assert.equal(second.nodes.find((n) => n.label === 'Book the venue')?.status, 'DONE')
+  assert.equal(second.nodes.find((n) => n.label === 'Send the invitations'), undefined, 'untouched tasks are not restated')
+  assert.deepEqual(labels(second, 'TASK').filter((t) => t.status === 'OPEN').map((t) => [t.label, t.date]), [['Order the catering', '2026-10-17']])
+  assert.ok(edge(second, 'Chloe', 'REPORTS_TO', 'Maya'))
+
+  // What a live audience types: several sentences on one line, an irregular verb ("sent" for "send").
+  const third = parseMinutes('Sam will write the agenda by Friday. Maya has sent the invitations. Done.',
+    { meetingDate: '2026-10-09', knownEntities: known })
+  assert.deepEqual(third.nodes.filter((n) => n.type === 'TASK').map((t) => [t.label, t.date, t.status]), [
+    ['Write the agenda', '2026-10-16', 'OPEN'],
+    ['Send the invitations', undefined, 'DONE'],
+  ])
+  assert.ok(edge(third, 'Sam', 'RESPONSIBLE_FOR', 'Write the agenda'))
+})
+
+test('combineWithModel: the model cannot add owners to an action item the notes already assign', () => {
+  const text = 'Ben reports to Maya.\n- Maya: send the invitations by Oct 10'
+  const parsed = parseMinutes(text, { meetingDate: '2026-10-06' })
+  const model = {
+    summary: '', ambiguities: [],
+    nodes: [
+      { temporaryId: 'n1', label: 'Ben', type: 'PERSON' as const, confidence: 0.9 },
+      { temporaryId: 'n2', label: 'Send the invitations', type: 'TASK' as const, confidence: 0.9 },
+      { temporaryId: 'n3', label: 'Team offsite', type: 'PROJECT' as const, confidence: 0.9 },
+    ],
+    edges: [
+      { sourceTemporaryId: 'n1', targetTemporaryId: 'n2', relationship: 'RESPONSIBLE_FOR', confidence: 0.8 },
+      { sourceTemporaryId: 'n1', targetTemporaryId: 'n3', relationship: 'PART_OF', confidence: 0.8 },
+    ],
+  }
+  const x = combineWithModel(model, parsed, text)
+  const name = (id: string) => x.nodes.find((n) => n.temporaryId === id)!.label
+  const owners = x.edges.filter((e) => name(e.targetTemporaryId) === 'Send the invitations').map((e) => name(e.sourceTemporaryId))
+  assert.deepEqual(owners, ['Maya'])
+  assert.ok(x.edges.some((e) => name(e.sourceTemporaryId) === 'Ben' && name(e.targetTemporaryId) === 'Team offsite'), 'other model edges are kept')
+})
+
+test('structured bullets are not split into sentences (the second sentence qualifies the first)', () => {
+  const p = parseMinutes('## Updates\n- Building permit: issued by the city. The blocker is resolved.',
+    { knownEntities: [{ label: 'Building permit', type: 'BLOCKER', status: 'OPEN' }] })
+  assert.equal(p.nodes.find((n) => n.label === 'Building permit')?.status, 'RESOLVED')
+})
+
 test('combineWithModel: model "decisions" are dropped when the text has no decision language', () => {
   const model = {
     summary: '', ambiguities: [], edges: [],
@@ -112,7 +193,7 @@ test('combineWithModel: model "decisions" are dropped when the text has no decis
 })
 
 test('second domain (office relocation): updates resolve the permit, slip the move, close tasks', () => {
-  const dir = 'demo/scenarios/office-relocation/'
+  const dir = 'tests/fixtures/scenarios/office-relocation/'
   const known: KnownEntity[] = [
     { label: 'Get three quotes from moving companies', type: 'TASK', status: 'DONE' },
     { label: 'Approve the relocation budget', type: 'TASK', status: 'IN_PROGRESS' },

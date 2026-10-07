@@ -1,78 +1,59 @@
 # OrgMap AI
 
-**Turn meeting minutes, whiteboard photos and architecture diagrams into one live map of your project: who owns what, what's blocked, what was decided, and what's overdue.**
+**Meeting notes in. To-do list out.**
 
-Someone photographs the whiteboard after a meeting, or pastes the minutes. OrgMap AI reads it with a **local** vision/language model and **merges** it into a persistent knowledge graph. It never regenerates the graph from scratch. The dashboard updates by itself: action items with owners and due dates, open blockers, milestone slips, the org chart, and a status report ready to paste into email.
+Type what was said in a meeting, or photograph the whiteboard. OrgMap AI works out who does what by when, what was decided and who reports to whom, and keeps that picture up to date as new notes and photos arrive.
 
-- 🔒 **Runs entirely on your machine.** Models run in [Ollama](https://ollama.com); OCR uses tesseract.js. No OpenAI/Anthropic/Gemini keys, nothing sent to a hosted LLM.
-- ☁️ **Cloudinary for images.** Upload, storage, CDN thumbnails, and an analysis copy that is resized, contrast-improved and sharpened. Phone photos dropped into a Cloudinary folder are picked up automatically.
-- 🧠 **Incremental merge.** "Auth API" in a later meeting is matched to the existing "Authentication API". "The PCI audit is done" resolves the existing blocker. "Launch moves to Nov 15" records a slip.
-
----
-
-## Contents
-
-- [Demo in 5 minutes](#demo-in-5-minutes)
-- [Requirements](#requirements)
-- [Setup](#setup)
-- [Running](#running)
-- [Using it](#using-it)
-- [How it works](#how-it-works)
-- [Configuration](#configuration)
-- [Testing](#testing)
-- [Project structure](#project-structure)
-- [Troubleshooting](#troubleshooting)
-- [Limitations](#limitations)
+- **The AI runs on your laptop.** A local model in [Ollama](https://ollama.com) plus tesseract.js OCR. No OpenAI, Anthropic or Gemini keys; no notes are sent to a hosted LLM.
+- **Cloudinary handles the photos.** Signed upload, storage, CDN delivery, and an on-the-fly copy that is resized, contrast-improved and sharpened for the AI to read. See [Where Cloudinary is used](#where-cloudinary-is-used).
+- **It updates, it doesn't start over.** "Ben has booked the venue. Done." ticks off the existing to-do. A later photo adds new ones. Nothing is regenerated from scratch.
 
 ---
 
-## Demo in 5 minutes
+## The demo
 
-After [setup](#setup), one command starts everything (Windows PowerShell):
+One screen, about 15 to 20 seconds per step. After [setup](#setup):
 
 ```powershell
 .\start-demo.ps1
 ```
 
-Or run the two parts yourself, see [Running](#running). Everything happens on this one laptop; no phone or second machine is needed.
+Open **http://localhost:8501**.
 
-In the dashboard (http://localhost:8501):
+| Step | You do | You see |
+|---|---|---|
+| 1 | Four plain lines about planning a team offsite are already in the box. Press **Read my notes**. | A to-do list (what, who, by when), the decision, and who reports to whom. |
+| 2 | A short update is offered: "Ben has booked the venue. Done. …". Press **Add the update**. | That to-do is struck through, a new one is added, and a banner says what changed. |
+| 3 | A whiteboard photo is shown. Press **Read the photo** (or use your own photo or the laptop camera). | Two more to-dos, another one ticked off, and a panel showing exactly what Cloudinary did with the photo. |
+| 4 | Type your own line, for example `Sam will write the agenda by Friday.` | It joins the list. |
 
-1. In the sidebar open **➕ New project**, choose **Start from → Payments Platform Migration**, and click **Create project**.
-2. On **➕ Add notes**, under **Sample story**, click **Add next** four times. Each click feeds one meeting's minutes (and a whiteboard or sprint-board photo for two of them) to the local model, about 30–90 s each.
-3. Watch **📊 Dashboard** after each meeting:
+**Start over** resets it for the next person. Dates in the prepared notes are computed from today, and the whiteboard says "by Friday", so nothing ever looks stale.
 
-| Meeting | What the dashboard shows |
-|---|---|
-| Sep 8, Kickoff | 3 action items with owners and due dates, 2 milestones, the reporting lines |
-| Sep 15, Architecture review + whiteboard photo | Raj's action is **done**, the **PCI audit blocker** is raised, the architecture from the photo is added to the map |
-| Sep 22, Weekly sync | A new latency risk, Tom joins, new actions are assigned |
-| Sep 29, Steering committee + sprint-board photo | PCI blocker **resolved**, Checkout launch **slips 15 days**, a new vendor risk, the sprint board marks tasks done, an **overdue** load-test |
+---
 
-4. **📄 Status report** has a Markdown report to download or paste.
-5. **Add something live** under **Your notes**: type a line such as `- Tom Becker: finish the load test (due 2026-10-15)`, upload a photo, or switch on **Use this laptop's camera** and photograph a whiteboard.
+## Where Cloudinary is used
 
-A second, non-software story (**Office Relocation**) ships as well. The full graph editor (drag nodes, merge duplicates, edit relationships) is the web app at **http://localhost:5173**.
+Typed notes never leave the laptop. **Every photo goes through Cloudinary**, and the demo shows the evidence on screen after step 3:
 
-### Make your own demo
+1. **Stored:** the original, uploaded by a signed request from the local server. The API secret stays in `.env` on the server and never reaches the browser.
+2. **Prepared for the AI:** a derived copy, made by Cloudinary on the fly. The transformation is readable in the delivery URL the panel prints:
+   ```
+   https://res.cloudinary.com/<cloud>/image/upload/c_limit,h_1600,w_1600/e_improve/e_sharpen:60/f_jpg,q_90/v1/orgmap/<project>/<id>
+   ```
+   `c_limit,w_1600,h_1600` caps the size, `e_improve` fixes contrast and colour, `e_sharpen:60` makes handwriting crisper. The local model reads this copy, not the original.
+3. **Thumbnail:** `c_fill,g_auto,w_160,h_120`, a smart crop for lists.
 
-**Any project, live.** Create a blank project with any name and add notes under **Your notes**: paste text, upload `.md` / `.txt` files and photos, or use the laptop camera. Nothing else is required.
+Ways to verify it yourself:
 
-**A scripted story you can click through.** Add a folder to `demo/scenarios/`. Files are grouped into steps by their leading number:
+- **On screen:** the "What Cloudinary did with the photo" panel shows all three images served from `res.cloudinary.com`, the URL above, the asset's public ID, size and upload time.
+- **In your Cloudinary console:** Media Library → folder `orgmap/<project id>` contains the uploaded photo while the demo project exists (**Start over** deletes it again).
+- **In the code:** [server/cloudinary.ts](server/cloudinary.ts) (upload and the three transformations), [server/inbox.ts](server/inbox.ts) and [server/capture.ts](server/capture.ts).
+- **Turn it off:** remove the Cloudinary keys from `.env` and the panel says the photo was stored on the laptop instead.
 
-```
-demo/scenarios/q4-product-launch/
-  01-kickoff.md              minutes for step 1
-  02-design-review.md        minutes for step 2 ...
-  02-whiteboard.jpg          ... with a photo (any number of images share the step's number)
-  03-sprint-board.png        a photo on its own
-```
+Two more Cloudinary features, outside the main demo flow:
 
-- The first heading sets the names: `# Q4 Product Launch: Kickoff` → project "Q4 Product Launch", step "Kickoff".
-- A line `**Date:** 2026-10-01` dates the meeting; later meetings override earlier ones. Without it, today's date is used.
-- See [Minutes format that works best](#minutes-format-that-works-best) for the patterns that are read exactly.
-
-The story appears in the dashboard within 10 seconds, under **➕ New project → Start from** and under **Sample story**. No code changes are needed.
+- **Phone capture.** `http://<laptop-ip>:8787/capture` opens the Cloudinary Upload Widget on a phone (same Wi-Fi). Photos upload straight from the phone to Cloudinary, signed by the local server.
+- **Inbox folder.** Any image dropped into the Cloudinary folder `orgmap-inbox/<project-name>` (Media Library, mobile app, API) is imported and read automatically within 15 seconds.
 
 ---
 
@@ -83,11 +64,11 @@ The story appears in the dashboard within 10 seconds, under **➕ New project �
 | **Node.js** | 20+ (tested on 24) | |
 | **Ollama** | 0.9+ | <https://ollama.com/download> |
 | **A vision model** | `qwen2.5vl:7b` recommended (6 GB) | `ollama pull qwen2.5vl:7b` |
-| **Python** | 3.10+ | only for the Streamlit demo |
-| **Cloudinary account** | free tier is fine | optional; without it images are stored on local disk |
+| **Python** | 3.10+ | for the demo page |
+| **Cloudinary account** | free tier is fine | without it, photos are stored on local disk and the Cloudinary panel says so |
 | **Hardware** | 16 GB RAM, 8 GB GPU recommended | runs on CPU too, but slowly |
 
-Other Ollama vision models work as well (`qwen3-vl`, `minicpm-v`, `llava`, `gemma3`). The app picks the best one installed. An LM Studio / llama.cpp / LocalAI OpenAI-compatible **local** endpoint is also supported, see [Configuration](#configuration).
+Other Ollama vision models work as well (`qwen3-vl`, `minicpm-v`, `llava`, `gemma3`); the app picks the best one installed. A local OpenAI-compatible endpoint (LM Studio, llama.cpp, LocalAI) is also supported, see [Configuration](#configuration).
 
 ---
 
@@ -97,24 +78,17 @@ Other Ollama vision models work as well (`qwen3-vl`, `minicpm-v`, `llava`, `gemm
 git clone <this repo> orgmap-ai
 cd orgmap-ai
 
-# 1. Node dependencies
-npm install
+npm install                          # 1. Node packages
+ollama pull qwen2.5vl:7b             # 2. local model, one-time 6 GB download
 
-# 2. Local model (one-time download, about 6 GB)
-ollama pull qwen2.5vl:7b
-
-# 3. Python environment for the demo dashboard
-python -m venv .venv
-.venv\Scripts\Activate.ps1          # macOS/Linux: source .venv/bin/activate
+python -m venv .venv                 # 3. Python environment for the demo page
+.venv\Scripts\Activate.ps1           #    macOS/Linux: source .venv/bin/activate
 pip install -r demo/requirements.txt
 
-# 4. Configuration
-cp .env.example .env                # Windows PowerShell: Copy-Item .env.example .env
+cp .env.example .env                 # 4. configuration (PowerShell: Copy-Item .env.example .env)
 ```
 
-On Windows, `.\start-demo.ps1` does steps 1, 3 and 4 for you on first run. If PowerShell refuses to run scripts, use `powershell -ExecutionPolicy Bypass -File .\start-demo.ps1`, or allow scripts for your user once with `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
-
-Then edit `.env`. Everything has a working default. Only fill in Cloudinary if you want cloud image storage and phone capture:
+Put your Cloudinary credentials in `.env` (Cloudinary console → **Settings → API Keys**):
 
 ```ini
 CLOUDINARY_CLOUD_NAME=your-cloud-name
@@ -122,20 +96,26 @@ CLOUDINARY_API_KEY=123456789012345
 CLOUDINARY_API_SECRET=your-api-secret
 ```
 
-These are in the Cloudinary console under **Settings → API Keys**. The secret is used only on the server (signed uploads); it never reaches the browser. `.env` is git-ignored.
+`.env` is git-ignored. On Windows, `.\start-demo.ps1` does steps 1, 3 and 4 for you on first run. If PowerShell refuses to run scripts, use `powershell -ExecutionPolicy Bypass -File .\start-demo.ps1`.
 
 ---
 
 ## Running
 
-Two terminals, both in the project folder:
+One command (Windows):
 
 ```powershell
-# Terminal 1: API server + web app
+.\start-demo.ps1
+```
+
+Or two terminals, both in the project folder:
+
+```powershell
+# Terminal 1: the server (API + local model + Cloudinary)
 npm run dev
 
-# Terminal 2: demo dashboard
-.venv\Scripts\Activate.ps1          # macOS/Linux: source .venv/bin/activate
+# Terminal 2: the demo page
+.venv\Scripts\Activate.ps1           # macOS/Linux: source .venv/bin/activate
 npm run demo
 ```
 
@@ -143,105 +123,65 @@ Then open **http://localhost:8501**. Ollama must be running (it starts with Wind
 
 | Command | What it does |
 |---|---|
-| `.\start-demo.ps1` | Windows: checks Ollama, installs what's missing, starts the server and the dashboard |
-| `npm run dev` | API server (`:8787`, auto-reload) + web app (`:5173`) |
-| `npm run demo` | Streamlit dashboard (`:8501`), needs `npm run dev` running and the Python environment active |
-| `npm start` | Production: build the web app, serve everything from `:8787` |
-| `npm test` | Unit tests (no model needed, about 1 s) |
-| `npm run test:eval` | Extraction accuracy on 6 cases against the running server + model |
-| `npm run test:scenario` | The full 4-meeting demo story, checked end to end |
-| `npm run typecheck` | TypeScript check for client + server |
-
-On startup the server prints the model it selected and the phone-capture URL:
-
-```
-OrgMap AI server on http://localhost:8787 (cloudinary: on)
-[inbox] watching Cloudinary folder "orgmap-inbox/<workspace>" every 15s
-[capture] phone page: http://192.168.1.23:8787/capture
-```
+| `.\start-demo.ps1` | Checks Ollama, installs what's missing, starts the server and the demo |
+| `npm run dev` | Server on `:8787` (auto-reload) and the graph editor on `:5173` |
+| `npm run demo` | Demo page on `:8501`; needs `npm run dev` running and the Python environment active |
+| `npm test` | Unit tests (no model needed, about 1 second) |
+| `npm run test:eval` | Extraction accuracy on 6 cases, against the running server and model |
+| `npm run test:scenario` | A 4-meeting, 2-photo project, checked end to end |
+| `npm run typecheck` | TypeScript check |
 
 ---
 
-## Using it
+## Writing notes it understands
 
-### Add knowledge
+Plain sentences work. These patterns are read exactly, with no guessing by the model:
 
-- **Paste minutes or notes**, or upload `.txt` / `.md` files.
-- **Upload images** (`.jpg .png .webp`): whiteboards, architecture diagrams, slides, sprint boards, org charts.
-- **Phone capture:** open `http://<laptop-ip>:8787/capture` on a phone (same Wi-Fi), pick the project, tap **Take photo of notes**.
-- **Straight into Cloudinary:** drop images into the folder `orgmap-inbox/<project-name-slug>` (Media Library or the Cloudinary mobile app). They are imported within 15 s.
+| You write | It becomes |
+|---|---|
+| `- Ben: book the venue by Oct 10` | a to-do for Ben, due Oct 10 |
+| `Sam will write the agenda by Friday.` | a to-do for Sam, due the coming Friday |
+| `TODO: Chloe: print the name badges` | a to-do for Chloe |
+| `Ben has booked the venue. Done.` | the existing "Book the venue" to-do, ticked off |
+| `- Decision: lunch will be catered.` | a decision |
+| `Chloe reports to Maya.` | a reporting line |
+| `The launch moves from Oct 31 to Nov 15.` | the existing milestone, moved, with the slip recorded |
 
-### Minutes format that works best
+Dates can be `Oct 10`, `October 10th`, `10 Oct`, `2026-10-10`, `by Friday`, `due tomorrow`. Longer, formal minutes with headings (`## Action items`, `## Decisions`, `## Risks`, `## Milestones`, `## Updates`) work too; see [tests/fixtures/scenarios](tests/fixtures/scenarios) for examples.
 
-Free-form prose works. These conventions are parsed exactly (no model guesswork):
-
-```markdown
-**Date:** 2026-09-29
-**Attendees:** Sarah Chen (Program Director), Raj Patel
-
-## Action items
-- Raj Patel: provision the Redis Cache (due 2026-09-25)
-
-## Decisions
-- Decision: keep the legacy Ledger running until cutover.
-
-## Risks
-- Fraud vendor contract: expires 2026-10-20, not renewed yet. It blocks the Fraud Check process.
-
-## Milestones
-- Checkout launch: 2026-10-31
-
-## Updates
-- PCI audit: completed. The blocker is resolved.
-- The Checkout launch moves from 2026-10-31 to 2026-11-15.
-- Priya Shah joins the Payments Team and reports to Ana Silva.
-```
-
-### Update and correct
-
-- **Edit a past meeting's minutes:** whatever only that meeting said is retracted, and the new version is merged in. Status changes it made are rolled back too.
-- **Possible duplicates** show a dashed outline in the web app, with **Merge** / **Keep separate** buttons.
-- **Manual edits** to labels, types, statuses and relationships happen in the web app's right panel.
+The same rules apply to photos: text on a whiteboard is read by OCR and parsed the same way, and the vision model adds what only a picture shows (boxes, arrows, sticky-note columns, org-chart lines).
 
 ---
 
 ## How it works
 
 ```
- photo / minutes ──► Cloudinary (store, thumbnail, 1600px sharpened analysis copy)
-                         │
-                         ▼
-             ┌──────────────────────────┐
-             │ tesseract.js OCR (local) │
-             │ qwen2.5vl via Ollama     │──► JSON (Zod-validated, 1 repair retry)
-             │ minutes parser (exact)   │
-             └──────────────────────────┘
-                         │
-                         ▼
-     cleanup: fix edge directions, fold "X latency" into X, drop leaked dates
-                         │
-                         ▼
-     reconcile with the existing graph:
-       exact / alias / fuzzy match → model adjudicates the unsure band →
-       still unsure → flagged for the user. Types must be compatible.
-                         │
-                         ▼
-     persistent graph (data/db.json): nodes, edges, provenance per source,
-     status/date history per meeting (latest meeting wins)
-                         │
-                         ▼
-     views: action items · blockers · milestones/slips · decisions ·
-            org chart · ownership · trends · Markdown status report
+ typed notes ─────────────────────────────┐
+                                          ▼
+ photo ──► Cloudinary ──► prepared copy ──► OCR (tesseract.js) + vision model (Ollama) + notes parser
+           (store, CDN,    (resize,                         │
+            thumbnail)      improve, sharpen)               ▼
+                                          JSON, schema-validated, one repair retry
+                                                            │
+                                                            ▼
+                     cleanup: fix relationship directions, drop invented dates and owners
+                                                            │
+                                                            ▼
+                     merge into the existing graph: match names ("Auth API" = "Authentication API"),
+                     never merge different kinds of thing, flag what is unsure
+                                                            │
+                                                            ▼
+                     stored graph with a history per item (latest meeting wins)
+                                                            │
+                                                            ▼
+                     to-dos · decisions · blockers · milestones · who reports to whom
 ```
 
-**Design choices**
+- **The model never writes to storage directly.** Its output is validated, then cleaned up by ordinary code, before anything is merged.
+- **Structure is parsed, prose is modelled.** A 7B local model is good at diagrams and loose prose but unreliable at lists of tasks and dates, so a deterministic parser reads those and wins wherever both cover the same thing.
+- **One model for text and images.** On an 8 GB GPU, `qwen2.5vl:7b` is 3 to 5 times faster than a larger text model and avoids reloading between a photo and a note.
 
-- **The model never writes to storage directly.** Its output is schema-validated, then cleaned up deterministically before anything is merged.
-- **Structure is parsed, prose is modelled.** A 7B local model is good at diagrams and prose relationships but unreliable at long structured minutes. Sections, `Owner: task (due …)`, `X reports to Y` and status updates are handled by a deterministic parser that wins where both overlap.
-- **One model for everything** (`OLLAMA_SINGLE_MODEL=true`). On an 8 GB GPU, `qwen2.5vl:7b` handles text too. That's 3–5× faster than a 14B text model and avoids reloading models between a photo and the minutes.
-- **No webhooks needed.** A localhost app can't receive Cloudinary webhooks, so the server polls the inbox folder with one Admin API call per poll.
-
-Code map: [server/lib/ai/provider.ts](server/lib/ai/provider.ts) (`analyzeImage` / `analyzeText` / `reconcileGraph`), [server/lib/minutes.ts](server/lib/minutes.ts), [server/graph/reconcile.ts](server/graph/reconcile.ts), [server/views.ts](server/views.ts).
+Code map: [server/lib/ai/provider.ts](server/lib/ai/provider.ts) (`analyzeImage`, `analyzeText`, `reconcileGraph`), [server/lib/minutes.ts](server/lib/minutes.ts) (the parser), [server/graph/reconcile.ts](server/graph/reconcile.ts) (merging), [server/views.ts](server/views.ts) (to-dos, decisions and the rest), [server/cloudinary.ts](server/cloudinary.ts).
 
 ---
 
@@ -251,18 +191,17 @@ All in `.env` (see [.env.example](.env.example)):
 
 | Variable | Default | |
 |---|---|---|
+| `CLOUDINARY_CLOUD_NAME` / `_API_KEY` / `_API_SECRET` | empty | empty = photos stored on local disk |
+| `CLOUDINARY_INBOX` | `true` | watch the inbox folder for photos |
+| `CLOUDINARY_INBOX_FOLDER` | `orgmap-inbox` | |
+| `CLOUDINARY_INBOX_POLL_SECONDS` | `15` | |
 | `LOCAL_AI_PROVIDER` | `ollama` | or `lmstudio` (any local OpenAI-compatible server) |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | |
 | `OLLAMA_MODEL` / `OLLAMA_VISION_MODEL` | auto | pin specific models |
-| `OLLAMA_SINGLE_MODEL` | `true` | `false` = separate text model (e.g. `qwen3:14b`), slower |
-| `OLLAMA_NUM_CTX` | `16384` | upper bound; smallest fitting context is used |
+| `OLLAMA_SINGLE_MODEL` | `true` | `false` = separate, slower text model |
 | `OLLAMA_UNLOAD_ON_SWITCH` | `true` | keep one model in memory (needed on 16 GB RAM) |
 | `LOCAL_AI_BASE_URL` / `LOCAL_AI_MODEL` | | for `lmstudio` |
 | `OCR_ENABLED` | `true` | |
-| `CLOUDINARY_CLOUD_NAME` / `_API_KEY` / `_API_SECRET` | empty | empty = local disk storage |
-| `CLOUDINARY_INBOX` | `true` | watch the inbox folder for phone photos |
-| `CLOUDINARY_INBOX_FOLDER` | `orgmap-inbox` | |
-| `CLOUDINARY_INBOX_POLL_SECONDS` | `15` | |
 | `PORT` | `8787` | |
 
 ---
@@ -270,47 +209,39 @@ All in `.env` (see [.env.example](.env.example)):
 ## Testing
 
 ```bash
-npm test                 # 22 deterministic tests: matching, schema validation, relationship fixes,
-                         # minutes parser on the demo minutes, status history, dashboard views
-npm run test:eval        # 6 extraction cases (text, alias merge, org chart, process flow, diagram + notes)
-npm run test:scenario    # 4 meetings + 2 photos, 13 checks on the resulting dashboard
+npm test                 # 26 unit tests: the notes parser, name matching, validation, status history
+npm run test:eval        # 6 extraction cases: text, name matching, org chart, process flow, diagram + notes
+npm run test:scenario    # a 4-meeting, 2-photo project with 13 checks on the result
 ```
 
-The eval and scenario tests call the running server and the local model. To keep them out of your real data, run them against an isolated server:
-
-```bash
-# PowerShell
-$env:PORT='8788'; $env:DATA_DIR='data-eval'; $env:CLOUDINARY_DISABLED='true'; npx tsx server/index.ts
-$env:ORGMAP_API='http://localhost:8788'; npm run test:scenario
-```
+`test:eval` and `test:scenario` call the running server and the local model. Their inputs are in [tests/fixtures](tests/fixtures) and [tests/dataset](tests/dataset).
 
 ---
 
 ## Project structure
 
 ```
-server/
-  index.ts            REST API, analysis queue, source lifecycle
-  lib/ai/provider.ts  local model abstraction: analyzeImage / analyzeText / reconcileGraph
-  lib/ai/runtimes.ts  Ollama + OpenAI-compatible local clients, model auto-selection
-  lib/ai/ocr.ts       tesseract.js OCR
-  lib/minutes.ts      deterministic meeting-minutes parser
-  graph/reconcile.ts  merge into the persistent graph, duplicate detection, status history
-  graph/text.ts       label normalization + similarity
-  views.ts            dashboard views + Markdown status report
-  cloudinary.ts       signed uploads, analysis/preview/thumbnail transformations
-  inbox.ts            Cloudinary inbox watcher (phone photos → sources)
-  capture.ts          mobile capture page (Cloudinary Upload Widget)
-  store.ts            JSON-file persistence (data/db.json)
-src/                  React + React Flow graph editor (web app)
-  shared/schema.ts    types + Zod schemas shared by client and server
 demo/
-  streamlit_app.py    dashboard demo: any project, sample stories, webcam capture
-  scenarios/          sample stories: one folder each (payments-migration, office-relocation)
-  requirements.txt    Python packages for the dashboard
-tests/                unit tests, extraction eval dataset, end-to-end scenario
+  app.py              the demo page (Streamlit)
+  whiteboard.png      the sample photo for step 3 (source: whiteboard.html)
+server/
+  index.ts            REST API, analysis queue
+  cloudinary.ts       signed uploads and the three transformations
+  inbox.ts            Cloudinary inbox watcher
+  capture.ts          phone capture page (Cloudinary Upload Widget)
+  lib/ai/provider.ts  local model abstraction: analyzeImage / analyzeText / reconcileGraph
+  lib/ai/runtimes.ts  Ollama and OpenAI-compatible local clients, model auto-selection
+  lib/ai/ocr.ts       tesseract.js OCR
+  lib/minutes.ts      deterministic notes parser
+  graph/reconcile.ts  merging, duplicate detection, status history
+  views.ts            to-dos, decisions, blockers, milestones, reporting lines
+  store.ts            JSON-file storage (data/db.json)
+src/                  graph editor (React + React Flow, uses @cloudinary/react)
+tests/                unit tests, eval cases, fixtures
 start-demo.ps1        one-command launcher (Windows)
 ```
+
+The graph editor at `http://localhost:5173` shows the full map behind the to-do list (drag, edit, merge duplicates). It is not needed for the demo.
 
 ---
 
@@ -318,21 +249,22 @@ start-demo.ps1        one-command launcher (Windows)
 
 | Symptom | Fix |
 |---|---|
-| `Local model runtime is not reachable` | Start Ollama (`ollama serve`, or launch the app). |
-| `No local vision model found` | `ollama pull qwen2.5vl:7b`. Without one, images fall back to OCR + text model. |
-| Node crashes with *out of memory* / `spawn UNKNOWN` | RAM is exhausted. Keep `OLLAMA_UNLOAD_ON_SWITCH=true`, close other heavy apps, and don't run two OrgMap servers analyzing at once. |
-| Analysis is slow (minutes per source) | The model is running on CPU. Check `ollama ps`, use `OLLAMA_SINGLE_MODEL=true`, or a smaller model. |
-| Phone can't open the capture page | Same Wi-Fi? Allow Node through the Windows firewall (private networks). Use the IP the server prints, not `localhost`. |
+| "The OrgMap server isn't running" | Run `npm run dev` in another terminal. |
+| "The local AI model isn't running" | Start the Ollama app, or run `ollama serve`. |
+| `No local vision model found` | `ollama pull qwen2.5vl:7b` |
+| The Cloudinary panel says the photo was stored on the laptop | The three `CLOUDINARY_…` values are missing from `.env`. Add them and restart `npm run dev`. |
 | `api_secret mismatch` from Cloudinary | Re-copy the secret with the console's copy button: `I` and `l` look identical in its font. |
-| `Port 5173 is in use` | Another `npm run dev` is already running; use that one or stop it. |
-| `Failed to load PostCSS config … not valid JSON` | A JSON file was saved with a UTF-8 BOM (PowerShell 5 `Set-Content`). Re-save it as UTF-8 without BOM. |
+| A step takes minutes | The model is running on CPU. Check `ollama ps`. |
+| Node crashes with *out of memory* | Close other heavy apps and keep `OLLAMA_UNLOAD_ON_SWITCH=true`. |
+| "Disk is full: changes are not being saved" | Free up disk space; the server keeps running in the meantime. |
+| Phone can't open the capture page | Same Wi-Fi? Allow Node through the firewall, and use the IP the server prints, not `localhost`. |
 
 ---
 
 ## Limitations
 
-- Handwriting recognition depends on the vision model and photo quality. Printed text and clean diagrams work best.
-- Arrow direction in dense diagrams is occasionally wrong. Fix it in the web app (edit or delete the edge).
-- Storage is a single JSON file, which is fine for a team or project but not multi-tenant.
-- No authentication. Run it on a trusted network. The capture page can only upload into the inbox folder.
-- PDF input isn't supported yet. Export slides as images.
+- Handwriting depends on the photo. Clear block letters work; cursive or a blurry photo may not.
+- Free-form sentences outside the patterns above are read by the model and can be misread. Check the result.
+- Arrow directions in dense diagrams are occasionally wrong.
+- Storage is one JSON file, and there is no login. Run it on a trusted network.
+- PDFs aren't supported yet; export slides as images.

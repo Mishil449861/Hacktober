@@ -1,4 +1,4 @@
-# One command to run OrgMap AI + the demo dashboard on this laptop.
+# One command to run OrgMap AI and its demo on this laptop.
 #   .\start-demo.ps1
 # If PowerShell blocks scripts:  powershell -ExecutionPolicy Bypass -File .\start-demo.ps1
 
@@ -19,9 +19,9 @@ if (-not (Test-Path .venv\Scripts\python.exe)) {
   python -m venv .venv
   & .\.venv\Scripts\python.exe -m pip install --quiet -r demo\requirements.txt
 }
-if (-not (Test-Path .env)) { Copy-Item .env.example .env; Write-Host 'Created .env from .env.example (add Cloudinary keys there if you have them).' }
+if (-not (Test-Path .env)) { Copy-Item .env.example .env; Write-Host 'Created .env from .env.example (add your Cloudinary keys there).' }
 
-# 3. API + web app in its own window, then the dashboard in this one.
+# 3. API server in its own window, then the demo page in this one.
 if (-not (Get-NetTCPConnection -LocalPort 8787 -State Listen -ErrorAction SilentlyContinue)) {
   Start-Process powershell -ArgumentList '-NoExit', '-Command', "Set-Location '$PSScriptRoot'; npm run dev"
   Write-Host 'Starting the OrgMap server...'
@@ -30,7 +30,6 @@ if (-not (Get-NetTCPConnection -LocalPort 8787 -State Listen -ErrorAction Silent
 }
 
 Write-Host ''
-Write-Host 'Dashboard:    http://localhost:8501' -ForegroundColor Green
-Write-Host 'Graph editor: http://localhost:5173' -ForegroundColor Green
-Write-Host 'Press Ctrl+C to stop the dashboard; close the other window to stop the server.'
-& .\.venv\Scripts\python.exe -m streamlit run demo\streamlit_app.py --browser.gatherUsageStats false
+Write-Host 'Demo: http://localhost:8501' -ForegroundColor Green
+Write-Host 'Press Ctrl+C to stop the demo; close the other window to stop the server.'
+& .\.venv\Scripts\python.exe -m streamlit run demo\app.py --server.port 8501 --browser.gatherUsageStats false

@@ -6,7 +6,7 @@
  */
 import { v2 as cloudinary } from 'cloudinary'
 import type { Source, Workspace } from '../src/shared/schema.ts'
-import { cloudinaryEnabled, previewUrl, thumbUrl } from './cloudinary.ts'
+import { analysisUrl, cloudinaryEnabled, previewUrl, thumbUrl } from './cloudinary.ts'
 import { newId, now, persist, store } from './store.ts'
 
 export const INBOX_ROOT = process.env.CLOUDINARY_INBOX_FOLDER ?? 'orgmap-inbox'
@@ -21,6 +21,17 @@ export const inboxState = { enabled: false, lastPollAt: undefined as string | un
 export async function ensureInboxFolder(ws: Workspace) {
   if (!cloudinaryEnabled) return
   await cloudinary.api.create_folder(inboxFolder(ws)).catch(() => undefined)
+}
+
+/**
+ * Delete a project's Cloudinary folders (uploads + inbox). Cloudinary only deletes empty folders, so
+ * this can never remove a photo; an inbox folder shared with a same-named project is left alone.
+ */
+export async function removeProjectFolders(ws: Workspace) {
+  if (!cloudinaryEnabled) return
+  await cloudinary.api.delete_folder(`orgmap/${ws.id}`).catch(() => undefined)
+  const sharesInbox = store.db.workspaces.some((w) => w.id !== ws.id && slug(w.name) === slug(ws.name))
+  if (!sharesInbox) await cloudinary.api.delete_folder(inboxFolder(ws)).catch(() => undefined)
 }
 
 interface CldResource {
@@ -55,7 +66,7 @@ async function pollOnce(onImported: (sourceId: string) => void) {
         publicId: r.public_id, assetId: r.asset_id, secureUrl: r.secure_url,
         width: r.width, height: r.height, format: r.format, createdAt: r.created_at,
       },
-      previewUrl: previewUrl(r.public_id), thumbUrl: thumbUrl(r.public_id),
+      previewUrl: previewUrl(r.public_id), thumbUrl: thumbUrl(r.public_id), analysisUrl: analysisUrl(r.public_id),
     }
     store.db.sources.push(src)
     inboxState.imported++

@@ -37,15 +37,82 @@ const SECTION: [RegExp, string][] = [
   [/update|status|progress|review of/i, 'updates'],
 ]
 
+/** Past forms that share no prefix with the verb, so "has sent the invitations" finds "Send the invitations". */
+const IRREGULAR: Record<string, string> = {
+  sent: 'send', wrote: 'write', written: 'write', made: 'make', built: 'build', bought: 'buy', paid: 'pay',
+  ran: 'run', gave: 'give', given: 'give', got: 'get', took: 'take', taken: 'take', held: 'hold', met: 'meet',
+  chose: 'choose', chosen: 'choose', spoke: 'speak', spoken: 'speak', told: 'tell', found: 'find', kept: 'keep',
+  drew: 'draw', drawn: 'draw', sold: 'sell', taught: 'teach', brought: 'bring', set: 'set', led: 'lead', did: 'do',
+}
+
 const tokens = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/)
-  .filter((t) => t && !STOP.has(t)).map((t) => t.slice(0, 5))
+  .filter((t) => t && !STOP.has(t)).map((t) => (IRREGULAR[t] ?? t).slice(0, 5))
+
+const BULLET = /^([-*•]|\d+[.)])\s+/
+const headingOf = (line: string) =>
+  line.match(/^#{1,6}\s+(.+)$/) ?? line.match(/^\*\*([^*]+)\*\*:?$/) ?? line.match(/^([A-Z][A-Za-z &/]{2,30}):$/)
+
+/**
+ * People type several sentences on one line ("Sam will write the agenda by Friday. Maya has sent the
+ * invitations. Done."). Outside structured sections, give each sentence its own line, keeping a short
+ * status fragment ("Done.") with the sentence it finishes. Bullets and structured sections stay whole.
+ */
+function splitProse(text: string): string[] {
+  const out: string[] = []
+  let structured = false
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim()
+    const heading = line && headingOf(line)
+    if (heading) structured = SECTION.some(([re]) => re.test(heading[1]))
+    if (!line || heading || structured || BULLET.test(line) || /^\**attendees/i.test(line)) { out.push(raw); continue }
+    const sentences: string[] = []
+    for (const s of line.split(/(?<=[.!?])\s+(?=[A-Z])/)) {
+      const fragment = s.split(/\s+/).length <= 3 && STATUS_WORDS.test(s)
+      if (fragment && sentences.length) sentences[sentences.length - 1] += ' ' + s
+      else sentences.push(s)
+    }
+    out.push(...sentences)
+  }
+  return out
+}
+
+/** "book" ~ "booke(d)" ~ "booki(ng)": stems match when one is a prefix of the other (4+ letters). */
+const sameStem = (a: string, b: string) => a === b || (Math.min(a.length, b.length) >= 4 && (a.startsWith(b) || b.startsWith(a)))
 
 /** Share of an entity's content words that appear in a line (prefix-stemmed). */
 function mentionScore(line: string, label: string) {
-  const lt = new Set(tokens(line)), et = tokens(label)
+  const lt = tokens(line), et = tokens(label)
   if (!et.length) return 0
-  const hit = et.filter((t) => lt.has(t)).length
+  const hit = et.filter((t) => lt.some((l) => sameStem(l, t))).length
   return hit < Math.min(2, et.length) ? 0 : hit / et.length
+}
+
+const MONTH = 'Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?'
+const MONTH_NUM: Record<string, number> = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 }
+const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+const iso = (d: Date) => d.toISOString().slice(0, 10)
+
+/**
+ * Rewrite dates the way people write them into YYYY-MM-DD, relative to the meeting date:
+ * "Oct 10", "October 10th, 2026", "10 Oct", "by Friday", "due tomorrow".
+ */
+export function normalizeDates(line: string, meetingDate?: string): string {
+  const base = new Date(`${meetingDate ?? iso(new Date())}T00:00:00Z`)
+  const fromParts = (mon: string, day: string, year?: string) => {
+    const d = new Date(Date.UTC(year ? Number(year) : base.getUTCFullYear(), MONTH_NUM[mon.slice(0, 3).toLowerCase()] - 1, Number(day)))
+    // No year given and the date is long past: they mean next year ("Jan 15" said in November).
+    if (!year && base.getTime() - d.getTime() > 180 * 86_400_000) d.setUTCFullYear(d.getUTCFullYear() + 1)
+    return iso(d)
+  }
+  const plusDays = (n: number) => iso(new Date(base.getTime() + n * 86_400_000))
+  return line
+    .replace(new RegExp(`\\b(${MONTH})\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:,?\\s+(\\d{4}))?\\b`, 'g'), (_m, mon, day, year) => fromParts(mon, day, year))
+    .replace(new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(${MONTH})\\.?(?:,?\\s+(\\d{4}))?\\b`, 'g'), (_m, day, mon, year) => fromParts(mon, day, year))
+    .replace(new RegExp(`\\b(due|by)\\s+(?:on\\s+|next\\s+|this\\s+)?(${WEEKDAYS.join('|')})\\b`, 'gi'), (_m, kw, wd) => {
+      const ahead = (WEEKDAYS.indexOf(wd.toLowerCase()) - base.getUTCDay() + 7) % 7 || 7
+      return `${kw} ${plusDays(ahead)}`
+    })
+    .replace(/\b(due|by)\s+(today|tomorrow)\b/gi, (_m, kw, w) => `${kw} ${plusDays(w.toLowerCase() === 'today' ? 0 : 1)}`)
 }
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
@@ -103,13 +170,13 @@ export function parseMinutes(text: string, ctx: { meetingDate?: string; knownEnt
   const person = (name: string, role?: string) => addNode(name, 'PERSON', role ? { description: role } : {})
 
   let section = ''
-  const lines = text.split(/\r?\n/)
+  const lines = splitProse(text)
   for (const raw of lines) {
     const line = raw.trim()
     if (!line) continue
 
     // Headings: "## Action items", "**Decisions**", "Risks:".
-    const heading = line.match(/^#{1,6}\s+(.+)$/) ?? line.match(/^\*\*([^*]+)\*\*:?$/) ?? line.match(/^([A-Z][A-Za-z &/]{2,30}):$/)
+    const heading = headingOf(line)
     if (heading) {
       section = SECTION.find(([re]) => re.test(heading[1]))?.[1] ?? 'notes'
       if (section === 'actions') covers.add('TASK')
@@ -128,8 +195,10 @@ export function parseMinutes(text: string, ctx: { meetingDate?: string; knownEnt
       continue
     }
 
-    const item = line.replace(/^([-*•]|\d+[.)])\s+/, '')
-    const isItem = item !== line
+    const rawItem = line.replace(BULLET, '')
+    const isItem = rawItem !== line
+    // Dates as people write them ("by Oct 10", "by Friday") become ISO for parsing; labels keep the original wording.
+    const item = normalizeDates(rawItem, ctx.meetingDate)
 
     // Reporting lines / team membership, anywhere in the text.
     for (const sentence of item.split(/(?<=\.)\s+/)) {
@@ -157,9 +226,9 @@ export function parseMinutes(text: string, ctx: { meetingDate?: string; knownEnt
     }
 
     // Inline "Decision: ..." anywhere.
-    const inlineDecision = item.match(/^decision\s*[:\-–]\s*(.+)$/i)
+    const inlineDecision = rawItem.match(/^decision\s*[:\-–]\s*(.+)$/i)
     if (inlineDecision || (section === 'decisions' && isItem)) {
-      const body = clean(inlineDecision ? inlineDecision[1] : item)
+      const body = clean(inlineDecision ? inlineDecision[1] : rawItem)
       const label = cap(clean(body.split(/\s*[(,;]|\s+rather than\s+|\s+not\s+a\s+/i)[0]).slice(0, 70))
       addNode(label, 'DECISION', { description: body.length > label.length ? body : undefined, date: ctx.meetingDate })
       covers.add('DECISION')
@@ -182,12 +251,15 @@ export function parseMinutes(text: string, ctx: { meetingDate?: string; knownEnt
     // bullet with an owner and a due date ("- Dana Kim: book the venue (due 2026-10-20)").
     const todo = item.match(/^(?:todo|to do|action(?: item)?|ai)\s*[:\-–]\s*(.+)$/i)
     const due = item.match(new RegExp(`\\(?\\s*(?:due|by)\\s*(${DATE.source})\\s*\\)?`, 'i'))
-    const ownerFirst = new RegExp(`^(${NAME}|[A-Z][A-Za-z ]*Team)\\s*[:\\-–]\\s*\\S`).test(item)
-    const looseTask = !!todo || (isItem && !!due && ownerFirst && !['milestones', 'risks', 'decisions', 'updates'].includes(section))
+    // "Ben: book the venue by Oct 10" or "Ben will book the venue by Friday"
+    const ownerFirst = new RegExp(`^(?:(${NAME}|[A-Z][A-Za-z ]*Team)\\s*[:\\-–]\\s*\\S|(${NAME}) (?:to|will) \\S)`).test(item)
+    const looseTask = !!todo || (!!due && ownerFirst && !['milestones', 'risks', 'decisions', 'updates'].includes(section))
 
-    if (!isItem && !todo) continue
+    if (!isItem && !looseTask) continue
 
     if (section === 'actions' || looseTask) {
+      // Explicit action items in the text: the parser's list is the to-do list (the model's guesses are replaced).
+      covers.add('TASK')
       // "Raj Patel: draft the target architecture (due 2026-09-12)." / "Raj to draft ..."
       let body = (todo ? todo[1] : item).replace(due?.[0] ?? '', '')
       let owner: string | undefined
@@ -250,9 +322,17 @@ export function combineWithModel(model: Extraction, parsed: ParsedMinutes, sourc
   const nodes = [...keptModelNodes.filter((n) => !idMap.has(n.temporaryId)), ...parsed.nodes]
   const ids = new Set(nodes.map((n) => n.temporaryId))
   const remap = (id: string) => idMap.get(id) ?? id
+  // Who owns a parsed action item comes from the notes ("Maya: send the invitations"), never from the
+  // model: it sometimes links a second person who merely appears nearby.
+  const parsedTasks = new Set(parsed.nodes.filter((n) => n.type === 'TASK').map((n) => n.temporaryId))
+  const ownerTypes = new Map(nodes.filter((n) => n.type === 'PERSON' || n.type === 'TEAM').map((n) => [n.temporaryId, n.type]))
+  const guessesTaskOwner = (e: XEdge) =>
+    (parsedTasks.has(e.sourceTemporaryId) && ownerTypes.has(e.targetTemporaryId)) ||
+    (parsedTasks.has(e.targetTemporaryId) && ownerTypes.has(e.sourceTemporaryId))
   const modelEdges = model.edges
     .map((e) => ({ ...e, sourceTemporaryId: remap(e.sourceTemporaryId), targetTemporaryId: remap(e.targetTemporaryId) }))
     .filter((e) => ids.has(e.sourceTemporaryId) && ids.has(e.targetTemporaryId))
     .filter((e) => !(parsed.hasReporting && /REPORTS_TO|MANAGES/i.test(e.relationship)))
+    .filter((e) => !guessesTaskOwner(e))
   return { ...model, nodes, edges: [...modelEdges, ...parsed.edges] }
 }

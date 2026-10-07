@@ -49,7 +49,7 @@ export function SourcesPanel(p: {
           <li key={s.id} className={s.id === p.selectedId ? 'active' : ''} onClick={() => p.onSelect(s.id)}>
             <span className={`status ${s.status.toLowerCase()}`} title={s.status}>{STATUS_ICON[s.status]}</span>
             {s.type === 'IMAGE' ? <SourceImage s={s} size="thumb" /> : <span className="doc-icon">{s.type === 'TEXT' ? '¶' : 'MD'}</span>}
-            <span className="source-name" title={s.name}>{s.origin === 'inbox' ? '📷 ' : ''}{s.name}</span>
+            <span className="source-name" title={s.name}>{s.name}</span>
           </li>
         ))}
       </ul>

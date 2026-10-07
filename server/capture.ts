@@ -34,7 +34,7 @@ export function capturePage(cfg: { cloudName: string; apiKey: string; enabled: b
   <p>Photograph whiteboards, sticky notes or slides. They upload to Cloudinary and the shared map updates automatically.</p>
   <select id="ws"></select>
   <div class="folder" id="folder"></div>
-  <button class="big" id="snap" ${cfg.enabled ? '' : 'disabled'}>📷 Take photo of notes</button>
+  <button class="big" id="snap" ${cfg.enabled ? '' : 'disabled'}>Take photo of notes</button>
   <label class="fallback">or upload through this laptop instead<input type="file" id="file" accept="image/*" capture="environment" multiple hidden></label>
   <p id="msg">${cfg.enabled ? '' : 'Cloudinary is not configured on the server.'}</p>
   <div class="card"><strong>Recent photos</strong><ul id="recent"><li><p>None yet</p></li></ul></div>

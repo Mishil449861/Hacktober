@@ -223,11 +223,13 @@ function annotationKind(word: string): { type: 'BLOCKER' | 'DECISION' | 'TASK'; 
  * Explicitly labeled whiteboard notes ("BLOCKER: PCI audit not done") are high-signal and OCR reads
  * them reliably, but the vision model sometimes skips them. Add any the model missed.
  */
-export function addOcrAnnotations(x: Extraction, ocrText: string): Extraction {
+export function addOcrAnnotations(x: Extraction, ocrText: string, skipTasks = false): Extraction {
   const nodes = [...x.nodes]
   for (const line of ocrText.split('\n')) {
     const m = line.match(ANNOTATION)
     if (!m) continue
+    // When the notes parser already read the action items (owner, due date, status), don't re-add them raw.
+    if (skipTasks && annotationKind(m[1]).type === 'TASK') continue
     const raw = m[2].replace(/[.;,]+$/, '')
     // "PCI audit not done" -> blocker "PCI audit" (subject without negation, so a later "done" can resolve it)
     const label = raw.replace(/\s+(not done|not complete[d]?|pending|incomplete|missing|outstanding|blocked)$/i, '') || raw
@@ -297,8 +299,14 @@ Identify systems, components, teams, people, processes, dependencies, ownership,
       const res = await analyzeText(ocrText, `Text OCR-extracted from a whiteboard / sprint board photo named "${name}".`, ctx)
       return { ...res, extraction: sanitize(addOcrAnnotations(res.extraction, ocrText), ctx.knownEntities), model: `tesseract + ${res.model} (vision failed)`, ocrText }
     }
-    const cleaned = dropLeakedDates(addOcrAnnotations(extraction, ocrText), ocrText, ctx.meetingDate)
-    return { extraction: sanitize(cleaned, ctx.knownEntities), model: visionModel + (ocrText ? ' + tesseract' : ''), ocrText }
+    // A photo of written notes ("TODO: Ben: book the bus by Friday") is read with the same exact parser
+    // as typed notes, applied to the OCR text; the vision model adds what only a picture shows
+    // (boxes, arrows, sticky-note columns).
+    const parsed = parseMinutes(ocrText, ctx)
+    const merged = combineWithModel(dropLeakedDates(extraction, ocrText, ctx.meetingDate), parsed, ocrText)
+    const cleaned = addOcrAnnotations(merged, ocrText, parsed.nodes.some((n) => n.type === 'TASK'))
+    const via = visionModel + (ocrText ? ' + tesseract' : '') + (parsed.nodes.length ? ' + notes parser' : '')
+    return { extraction: sanitize(cleaned, ctx.knownEntities), model: via, ocrText }
   }
 
   // Fallback: OCR + local text LLM. Layout is lost, so the model infers structure from text order.

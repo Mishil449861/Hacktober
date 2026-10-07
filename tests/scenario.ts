@@ -1,5 +1,5 @@
 /**
- * End-to-end scenario: plays the Northwind "Payments Platform Migration" meetings (demo/scenarios/payments-migration)
+ * End-to-end scenario: plays the Northwind "Payments Platform Migration" meetings (tests/fixtures/scenarios/payments-migration)
  * in order against a running server, then checks that the corporate views tell the right story.
  *
  *   npm run dev                 (terminal 1)
@@ -12,7 +12,7 @@ import type { Views } from '../server/views.ts'
 import { similarity } from '../server/graph/text.ts'
 
 const API = process.env.ORGMAP_API ?? 'http://localhost:8787'
-const DIR = path.resolve('demo/scenarios/payments-migration')
+const DIR = path.resolve('tests/fixtures/scenarios/payments-migration')
 const TODAY = '2026-10-02'
 
 export const SCENARIO: { name: string; date: string; text?: string; photo?: string }[] = [
