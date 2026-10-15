@@ -5,11 +5,11 @@
 import type { z } from 'zod'
 import {
   EXTRACTION_JSON_SCHEMA, ExtractionSchema, NODE_TYPES, RECONCILE_JSON_SCHEMA, RELATIONSHIP_TYPES,
-  ReconcileSchema, type Extraction, type ReconcileResult,
+  ReconcileSchema, VISION_EXTRACTION_JSON_SCHEMA, type Extraction, type ReconcileResult,
 } from '../../../src/shared/schema.ts'
 import { createRuntime } from './runtimes.ts'
 import { normalize, similarity } from '../../graph/text.ts'
-import { combineWithModel, parseMinutes } from '../minutes.ts'
+import { combineWithModel, normalizeDates, parseMinutes, type ParsedMinutes } from '../minutes.ts'
 import { ocrImage } from './ocr.ts'
 
 export const runtime = createRuntime()
@@ -31,9 +31,15 @@ Rules:
 - confidence is 0..1. Lower it for guesses or illegible content.
 - description: at most 12 words, only when it adds information beyond the label (role, purpose, date). Otherwise omit it.
 - Action items ("Raj: draft the plan", "AI:", "TODO", "will do X by Friday") are TASK nodes. Label = short imperative (max 8 words, e.g. "Draft API Gateway architecture").
-  Link the owner: owner RESPONSIBLE_FOR task. Put the due date in "date" (YYYY-MM-DD), resolving relative dates against the meeting date.
+  In notes and to-do lists, every item listed for someone is a TASK, never a PROJECT or PROCESS, even a bare noun phrase ("landing page", "DB testing").
+- Ownership: put the assignee's name in the TASK's "owner" field, exactly as written. A task belongs to a person when the input says so:
+  "Name: item", "Name → item", "Name will ...", "item (Name)", or the item is listed under a name heading ("Maya", "Maya:", "Maya → Design"),
+  which owns the items below it until the next name or section heading. An arrow from a person to an item means the item is assigned to them, never REPORTS_TO.
+  If no name is attached to an item, leave "owner" out. Never guess an owner from a nearby name, and never move an item to a different person's group.
+- Put the due date in "date" (YYYY-MM-DD), resolving relative dates against the meeting date. A "DUE ..." / "by ..." line applies to the item(s)
+  directly above it in the same group, never to another person's items. No date written = no "date".
 - status (optional): TASK = OPEN | IN_PROGRESS | DONE; BLOCKER = OPEN | RESOLVED; MILESTONE = OPEN | DONE. Set it only when the text states it
-  ("done", "completed", "resolved", "in progress", "still blocked"). A newly raised blocker or action item is OPEN.
+  ("done", "completed", "resolved", "in progress", "still blocked", ✓, "started", "halfway"). A newly raised blocker or action item is OPEN.
 - Name blockers by their subject without negation ("PCI audit", not "PCI audit not done") so later meetings can resolve them; put the detail in description.
 - MILESTONE: put its target date in "date" when given. If the meeting moves a milestone, emit the milestone with the NEW date.
 - If the input mentions something from the "Known entities" list, reuse that exact label (this is how updates attach to existing items).
@@ -48,6 +54,14 @@ export interface AnalysisResult {
   ocrText?: string
 }
 
+/**
+ * What each stage produced for one source, so a wrong to-do can be traced to the stage that lost it:
+ * the model's raw reply (vision failed?), its validated form (parser failed?), the notes parser's read,
+ * the combined + cleaned extraction (normalization failed?), and, added by the server, the merge
+ * report and the resulting to-dos (graph mapping failed?). Holds source text and model output only.
+ */
+export type Trace = { stage: string; data: unknown }[]
+
 class ModelOutputError extends Error {}
 
 /** Call the model, validate with Zod, retry once with a JSON-repair prompt, then fail gracefully. */
@@ -57,8 +71,10 @@ async function structured<T extends z.ZodTypeAny>(
   system: string,
   user: string,
   opts: { images?: string[]; vision?: boolean } = {},
+  trace?: Trace,
 ): Promise<z.infer<T>> {
   const raw = await runtime.chat({ system, user, jsonSchema, ...opts })
+  trace?.push({ stage: 'model.raw', data: raw })
   const first = tryParse(schema, raw)
   if (first.ok) return first.value
 
@@ -72,6 +88,7 @@ async function structured<T extends z.ZodTypeAny>(
     jsonSchema,
     ...opts,
   })
+  trace?.push({ stage: 'model.raw (repair retry)', data: { firstError: first.error, raw: repaired } })
   const second = tryParse(schema, repaired)
   if (second.ok) return second.value
   if (DEV) console.error('[ai] repair failed:', second.error, repaired.slice(0, 500))
@@ -166,6 +183,9 @@ export function sanitize(input: Extraction, known: { label: string; type: string
       }
       // A person does not "report to" a team; they belong to it.
       if (rel === 'REPORTS_TO' && s === 'PERSON' && t === 'TEAM') return { ...e, relationship: 'PART_OF' }
+      // "Maya → landing page" / "Maya → Design" read as a reporting line: people report only to people.
+      if (rel === 'REPORTS_TO' && s === 'PERSON' && t === 'TASK') return { ...e, relationship: 'RESPONSIBLE_FOR' }
+      if (rel === 'REPORTS_TO' && s === 'PERSON' && !OWNERS.has(t)) return { ...e, relationship: 'PART_OF' }
       // Process step -> process step is sequence, not an API call.
       if (rel === 'CALLS' && STEP_TYPES.has(s) && STEP_TYPES.has(t)) return { ...e, relationship: 'PRECEDES' }
       // "X BLOCKS <blocker>" is backwards: the blocker blocks X.
@@ -178,14 +198,66 @@ export function sanitize(input: Extraction, known: { label: string; type: string
 }
 
 /**
- * Models copy the meeting date into "date" for items that never stated one. Keep a date only if it
- * literally appears in the source text (or differs from the meeting date).
+ * Models copy the meeting date into "date" for items that never stated one. Keep a date only if the
+ * source text states it: literally ("2026-10-14") or as people write it ("Oct 14", "DUE Fri"), and it
+ * is not just the meeting date.
  */
 export function dropLeakedDates(x: Extraction, sourceText: string, meetingDate?: string): Extraction {
+  const stated = `${sourceText}\n${normalizeDates(sourceText, meetingDate)}`
   return {
     ...x,
-    nodes: x.nodes.map((n) => (n.date && ((meetingDate && n.date === meetingDate) || !sourceText.includes(n.date)) && n.type !== 'DECISION'
+    nodes: x.nodes.map((n) => (n.date && ((meetingDate && n.date === meetingDate) || !stated.includes(n.date)) && n.type !== 'DECISION'
       ? { ...n, date: undefined } : n)),
+  }
+}
+
+/** "", "none", "TBD", "ALL", "?": no single assignee. */
+const NOBODY = /^(?:n\/?a|none|null|unknown|unassigned|nobody|tbd|\?+|-+|all|everyone|everybody|team|the team|all of us)$/i
+
+/**
+ * Turn the model's per-task "owner" into the graph's form: owner PERSON/TEAM -RESPONSIBLE_FOR-> task.
+ * The owner field is the model's explicit statement, so an ownership edge it drew to someone else for
+ * the same task is a guess and is dropped. An owner whose name is not in the source text (`evidence`)
+ * is invented: the task stays unassigned and the doubt goes to "ambiguities".
+ */
+export function applyOwners(x: Extraction, evidence?: string): Extraction {
+  const nodes = x.nodes.map(({ owner: _owner, ...n }) => n)
+  let edges = [...x.edges]
+  const ambiguities = [...x.ambiguities]
+  const words = evidence === undefined ? undefined : new Set(normalize(evidence).split(' '))
+  for (const t of x.nodes) {
+    const name = t.owner?.trim()
+    if (!name || NOBODY.test(name) || t.type !== 'TASK') continue
+    if (words && !normalize(name).split(' ').every((w) => words.has(w))) {
+      ambiguities.push(`"${t.label}": owner "${name}" is not in the notes, left unassigned.`)
+      continue
+    }
+    const first = normalize(name).split(' ')[0]
+    const people = nodes.filter((p) => OWNERS.has(p.type))
+    let owner = people.find((p) => normalize(p.label) === normalize(name)) ??
+      (people.filter((p) => normalize(p.label).split(' ')[0] === first).length === 1 ? people.find((p) => normalize(p.label).split(' ')[0] === first) : undefined)
+    if (!owner) {
+      owner = { temporaryId: `owner_${nodes.length + 1}`, label: name, type: /team$/i.test(name) ? 'TEAM' : 'PERSON', confidence: t.confidence }
+      nodes.push(owner)
+    }
+    const ownerId = owner.temporaryId
+    const isOwner = (id: string) => nodes.some((p) => p.temporaryId === id && OWNERS.has(p.type))
+    edges = edges.filter((e) => !(OWNERSHIP.has(e.relationship.trim().toUpperCase().replace(/[\s-]+/g, '_')) && (
+      (e.targetTemporaryId === t.temporaryId && isOwner(e.sourceTemporaryId) && e.sourceTemporaryId !== ownerId) ||
+      (e.sourceTemporaryId === t.temporaryId && isOwner(e.targetTemporaryId) && e.targetTemporaryId !== ownerId))))
+    if (!edges.some((e) => e.sourceTemporaryId === ownerId && e.targetTemporaryId === t.temporaryId)) {
+      edges.push({ sourceTemporaryId: ownerId, targetTemporaryId: t.temporaryId, relationship: 'RESPONSIBLE_FOR', confidence: t.confidence })
+    }
+  }
+  return { ...x, nodes, edges, ambiguities }
+}
+
+const parsedSummary = (p: ParsedMinutes) => {
+  const label = (id: string) => p.nodes.find((n) => n.temporaryId === id)?.label
+  return {
+    nodes: p.nodes.map((n) => `${n.type} ${n.label}${n.date ? ` @${n.date}` : ''}${n.status ? ` [${n.status}]` : ''}`),
+    edges: p.edges.map((e) => `${label(e.sourceTemporaryId)} -${e.relationship}-> ${label(e.targetTemporaryId)}`),
+    covers: [...p.covers],
   }
 }
 
@@ -195,18 +267,33 @@ export async function analyzeText(text: string, context?: string, ctx: AnalysisC
   // Structured parts of minutes (action items, decisions, risks, status updates, reporting lines)
   // come from the deterministic parser; the model fills in relationships from the prose.
   const parsed = parseMinutes(text, ctx)
+  ctx.trace?.push({ stage: 'notes-parser', data: { input: 'text', ...parsedSummary(parsed) } })
   let raw: Extraction
   try {
     raw = await structured(ExtractionSchema, EXTRACTION_JSON_SCHEMA, EXTRACT_SYSTEM,
-      `${pre ? pre + '\n\n' : ''}Extract the knowledge graph from this text:\n"""\n${text.slice(0, 24000)}\n"""`)
+      `${pre ? pre + '\n\n' : ''}Extract the knowledge graph from this text:\n"""\n${text.slice(0, 24000)}\n"""`, {}, ctx.trace)
   } catch (e) {
     // Degrade instead of failing the whole source: the parser's output still updates the map.
     if (!parsed.nodes.length) throw e
     console.warn('[ai] model extraction failed, using minutes parser only:', (e as Error).message)
-    return { extraction: sanitize(combineWithModel({ summary: '', nodes: [], edges: [], ambiguities: ['Model extraction failed; structured items only.'] }, parsed), ctx.knownEntities), model: 'minutes parser (model failed)' }
+    const extraction = sanitize(combineWithModel({ summary: '', nodes: [], edges: [], ambiguities: ['Model extraction failed; structured items only.'] }, parsed), ctx.knownEntities)
+    ctx.trace?.push({ stage: 'final', data: extraction })
+    return { extraction, model: 'minutes parser (model failed)' }
   }
-  const extraction = combineWithModel(dropLeakedDates(raw, text, ctx.meetingDate), parsed, text)
-  return { extraction: sanitize(extraction, ctx.knownEntities), model: parsed.nodes.length ? `${model} + minutes parser` : model }
+  ctx.trace?.push({ stage: 'model.validated', data: raw })
+  const extraction = sanitize(combineWithModel(dropLeakedDates(applyOwners(raw, text), text, ctx.meetingDate), parsed, text), ctx.knownEntities)
+  ctx.trace?.push({ stage: 'final', data: extraction })
+  return { extraction, model: parsed.nodes.length ? `${model} + minutes parser` : model }
+}
+
+/**
+ * Which reading of a photo's text the notes parser should use: the vision model's transcript (it reads
+ * handwriting and marks the layout) or tesseract's OCR (exact on printed text). The one that yields
+ * more structure wins; ties go to the transcript.
+ */
+function richer(a: ParsedMinutes | undefined, b: ParsedMinutes) {
+  const score = (p: ParsedMinutes) => p.nodes.filter((n) => n.type === 'TASK').length * 2 + p.edges.length * 2 + p.nodes.length
+  return a && score(a) >= score(b) ? a : b
 }
 
 const ANNOTATION = /^\s*(blockers?|blocked|risks?|decisions?|decided|todo|to do|action(?: item)?s?|ai|done)\s*[:\-–]\s*(.{3,100}?)\s*$/i
@@ -244,6 +331,8 @@ export interface AnalysisContext {
   meetingDate?: string
   /** Labels already in the workspace graph, so the model reuses them for updates. */
   knownEntities?: { label: string; type: string; status?: string }[]
+  /** When set, each stage appends what it produced (see Trace). */
+  trace?: Trace
 }
 
 /**
@@ -275,6 +364,7 @@ export function contextBlock(ctx: AnalysisContext = {}, input = '') {
 
 export async function analyzeImage(image: Buffer, name: string, ctx: AnalysisContext = {}): Promise<AnalysisResult> {
   const [ocrText, visionModel] = await Promise.all([ocrImage(image), runtime.visionModel().catch(() => undefined)])
+  ctx.trace?.push({ stage: 'ocr', data: ocrText })
   const known = contextBlock(ctx, ocrText)
   const ocrBlock = (ocrText ? `\n\nOCR text detected in the image (may contain errors, use it to read labels):\n"""\n${ocrText.slice(0, 6000)}\n"""` : '') +
     (known ? `\n\n${known}` : '')
@@ -282,31 +372,50 @@ export async function analyzeImage(image: Buffer, name: string, ctx: AnalysisCon
   if (visionModel) {
     let extraction: Extraction
     try {
-      extraction = await structured(ExtractionSchema, EXTRACTION_JSON_SCHEMA, EXTRACT_SYSTEM,
-      `This image ("${name}") is a whiteboard photo, architecture diagram or slide.
+      extraction = await structured(ExtractionSchema, VISION_EXTRACTION_JSON_SCHEMA, EXTRACT_SYSTEM,
+      `This image ("${name}") is a whiteboard photo, handwritten meeting notes, architecture diagram or slide.
 Read boxes, labels, arrows, connectors, grouping/containment, swimlanes, handwritten notes and their spatial relationships.
 Arrows become edges in the arrow's direction: the box at the arrow's tail is the source, the box at the arrowhead is the target. Trace each line from its start to where the arrowhead touches; do not assume a line connects to the nearest or most central box.
 Boxes inside a group become PART_OF the group.
 Org charts (tree lines without arrowheads, manager on top): for every line from an upper PERSON box down to a lower PERSON box, emit relationship "MANAGES" with source = the UPPER person (manager) and target = the LOWER person. A TEAM box directly under a person means that person RESPONSIBLE_FOR the team. Do not use REPORTS_TO for org-chart tree lines.
-Sprint / kanban boards: each sticky note is a TASK; its column gives the status (TODO/BACKLOG = OPEN, DOING/IN PROGRESS = IN_PROGRESS, DONE = DONE); a name or initials on the note is the owner (owner RESPONSIBLE_FOR task).
+Sprint / kanban boards: each sticky note is a TASK; its column gives the status (TODO/BACKLOG = OPEN, DOING/IN PROGRESS = IN_PROGRESS, DONE = DONE); a name or initials on the note is its "owner".
 Free-floating annotations (colored notes, "BLOCKER:", "TODO:", "Owner:") are knowledge too: "BLOCKER: X" becomes a BLOCKER node X that BLOCKS the box it points at or sits nearest to; "Owner: T" becomes T OWNS the box it labels.
-Identify systems, components, teams, people, processes, dependencies, ownership, blockers and milestones.${ocrBlock}`,
-      { images: [image.toString('base64')], vision: true })
+Handwritten notes and to-do lists: use the layout, not just the words. A name written as a heading (alone on a line, underlined, circled, or followed by ":" or an arrow) owns the items written below it or indented under it, up to the next name or heading. A name beside a single item, or with an arrow to it, owns only that item. A "DUE ..." line belongs to the item(s) directly above it. Ticked items (✓, checked box) are DONE; crossed-out items are cancelled: leave them out. Items that sit under no name are unassigned: leave "owner" out rather than guessing.
+Identify systems, components, teams, people, processes, dependencies, ownership, blockers and milestones.
+
+"transcript": first, write the text of the image line by line, top to bottom, exactly as written (do not fix, summarise or add anything). Mark the layout:
+- a name that heads a group of items: "Name:" on its own line; each item of that group on its own line starting with "- "
+- a drawn arrow: "→"; a ticked item: start it with "✓"; crossed-out (struck-through) text: leave it out
+- an empty line between groups that are separate on the page; an item under no name goes after an empty line, never inside a name's group
+- a sticky note or card: "- <note text> (<name written on it>)" under its column heading ("TODO:", "DOING:", "DONE:")${ocrBlock}`,
+      { images: [image.toString('base64')], vision: true }, ctx.trace)
     } catch (e) {
       // Vision output unusable: fall through to the OCR path rather than failing the photo.
+      ctx.trace?.push({ stage: 'model.error (vision)', data: `${(e as Error).message}${(e as Error).cause ? ` (${String((e as Error).cause)})` : ''}` })
       if (!ocrText) throw e
       console.warn('[ai] vision extraction failed, falling back to OCR + text:', (e as Error).message)
       const res = await analyzeText(ocrText, `Text OCR-extracted from a whiteboard / sprint board photo named "${name}".`, ctx)
       return { ...res, extraction: sanitize(addOcrAnnotations(res.extraction, ocrText), ctx.knownEntities), model: `tesseract + ${res.model} (vision failed)`, ocrText }
     }
-    // A photo of written notes ("TODO: Ben: book the bus by Friday") is read with the same exact parser
-    // as typed notes, applied to the OCR text; the vision model adds what only a picture shows
-    // (boxes, arrows, sticky-note columns).
-    const parsed = parseMinutes(ocrText, ctx)
-    const merged = combineWithModel(dropLeakedDates(extraction, ocrText, ctx.meetingDate), parsed, ocrText)
-    const cleaned = addOcrAnnotations(merged, ocrText, parsed.nodes.some((n) => n.type === 'TASK'))
-    const via = visionModel + (ocrText ? ' + tesseract' : '') + (parsed.nodes.length ? ' + notes parser' : '')
-    return { extraction: sanitize(cleaned, ctx.knownEntities), model: via, ocrText }
+    ctx.trace?.push({ stage: 'model.validated', data: extraction })
+    // A photo of written notes ("Maya:" over a list, "TODO: Ben: book the bus by Friday") is read with the
+    // same exact parser as typed notes, applied to the vision model's transcript (handwriting) or the OCR
+    // text (print), whichever reads better; the vision model adds what only a picture shows (boxes, arrows,
+    // sticky-note columns).
+    const transcript = extraction.transcript?.trim() ?? ''
+    const fromOcr = parseMinutes(ocrText, ctx)
+    const fromTranscript = transcript ? parseMinutes(transcript, ctx) : undefined
+    const parsed = richer(fromTranscript, fromOcr)
+    const notes = parsed === fromTranscript ? transcript : ocrText
+    ctx.trace?.push({ stage: 'notes-parser', data: { input: parsed === fromTranscript ? 'transcript' : 'ocr', ...parsedSummary(parsed) } })
+    const evidence = `${ocrText}\n${transcript}`
+    const merged = combineWithModel(dropLeakedDates(applyOwners(extraction, evidence), evidence, ctx.meetingDate), parsed, evidence)
+    const cleaned = addOcrAnnotations(merged, notes, parsed.nodes.some((n) => n.type === 'TASK'))
+    const via = visionModel + (ocrText ? ' + tesseract' : '') + (parsed.nodes.length ? ` + notes parser (${parsed === fromTranscript ? 'transcript' : 'ocr'})` : '')
+    const final = sanitize({ ...cleaned, transcript: undefined }, ctx.knownEntities)
+    ctx.trace?.push({ stage: 'final', data: final })
+    // Stored on the source as the text read from the photo: the reading the notes parser used.
+    return { extraction: final, model: via, ocrText: notes || ocrText || transcript }
   }
 
   // Fallback: OCR + local text LLM. Layout is lost, so the model infers structure from text order.

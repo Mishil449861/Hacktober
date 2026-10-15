@@ -6,10 +6,10 @@ import express from 'express'
 import multer from 'multer'
 import { NODE_STATUSES, NODE_TYPES, RELATIONSHIP_TYPES, type GraphEdge, type Source, type SystemStatus } from '../src/shared/schema.ts'
 import { analysisUrl, cloudName, cloudinaryEnabled, deleteImage, previewUrl, thumbUrl, uploadImage } from './cloudinary.ts'
-import { analyzeImage, analyzeText, systemInfo } from './lib/ai/provider.ts'
+import { analyzeImage, analyzeText, systemInfo, type Trace } from './lib/ai/provider.ts'
 import { deriveState, mergeExtraction, mergeNodes, retractHistory } from './graph/reconcile.ts'
 import { buildReport, buildViews } from './views.ts'
-import { newId, now, persist, persistError, store, UPLOAD_DIR } from './store.ts'
+import { DATA_DIR, newId, now, persist, persistError, store, UPLOAD_DIR } from './store.ts'
 import { ensureInboxFolder, inboxFolder, inboxState, INBOX_ROOT, pollNow, removeProjectFolders, signInboxUpload, startInbox } from './inbox.ts'
 import { capturePage } from './capture.ts'
 
@@ -19,6 +19,16 @@ app.use(express.json({ limit: '2mb' }))
 // Text-only sources may arrive as a plain form post (e.g. Python `requests.post(data=...)`), not multipart.
 app.use(express.urlencoded({ extended: false, limit: '2mb' }))
 app.use('/uploads', express.static(UPLOAD_DIR))
+
+/**
+ * Extraction traces (data/debug/<source id>.json, also GET /api/sources/:id/trace): what OCR, the model,
+ * the notes parser, cleanup and the merge each produced. On by default in development; ORGMAP_DEBUG=false
+ * turns it off, ORGMAP_DEBUG=true turns it on in production. Contains the source's text and the model's
+ * output, never credentials or URLs.
+ */
+const TRACE = process.env.ORGMAP_DEBUG === 'true' || (process.env.ORGMAP_DEBUG !== 'false' && process.env.NODE_ENV !== 'production')
+const TRACE_DIR = path.join(DATA_DIR, 'debug')
+const traceFile = (sourceId: string) => path.join(TRACE_DIR, `${sourceId.replace(/[^\w-]/g, '')}.json`)
 
 const IMAGE_EXT = /\.(jpe?g|png|webp)$/i
 const TEXT_EXT = /\.(txt|md|markdown)$/i
@@ -95,6 +105,7 @@ app.delete('/api/workspaces/:id', wrap(async (req, res) => {
   // Remove the workspace's images from Cloudinary too (uploads and inbox photos).
   const ws = store.db.workspaces.find((w) => w.id === req.params.id)
   for (const s of store.db.sources.filter((x) => x.workspaceId === req.params.id && x.cloudinary)) await deleteImage(s.cloudinary!.publicId)
+  for (const s of store.db.sources.filter((x) => x.workspaceId === req.params.id)) fs.rmSync(traceFile(s.id), { force: true })
   // Also remove the project's (now empty) Cloudinary folders, so repeated resets don't litter the Media Library.
   if (ws) await removeProjectFolders(ws)
   store.deleteWorkspace(String(req.params.id))
@@ -165,6 +176,12 @@ app.post('/api/workspaces/:id/sources', upload.array('files', 20), wrap(async (r
   res.json(created)
 }))
 
+app.get('/api/sources/:id/trace', (req, res) => {
+  const file = traceFile(String(req.params.id))
+  if (!fs.existsSync(file)) return void res.status(404).json({ error: TRACE ? 'no trace for this source (analyze it again)' : 'tracing is off (ORGMAP_DEBUG=false)' })
+  res.type('json').send(fs.readFileSync(file, 'utf8'))
+})
+
 app.post('/api/sources/:id/analyze', (req, res) => {
   const s = store.source(req.params.id)
   if (!s) return void res.status(404).json({ error: 'not found' })
@@ -184,6 +201,7 @@ app.delete('/api/sources/:id', wrap(async (req, res) => {
   if (!s) return void res.status(404).json({ error: 'not found' })
   if (s.cloudinary) await deleteImage(s.cloudinary.publicId)
   if (s.localFile) fs.rmSync(path.join(UPLOAD_DIR, s.localFile), { force: true })
+  fs.rmSync(traceFile(s.id), { force: true })
   store.db.sources = store.db.sources.filter((x) => x.id !== s.id)
   retractSource(s)
   persist()
@@ -236,10 +254,12 @@ async function analyzeSource(sourceId: string) {
   // Re-analysis replaces this source's previous contribution instead of stacking on top of it.
   if (s.analyzedAt) retractSource(s)
   const asOf = s.meetingDate ?? s.cloudinary?.createdAt?.slice(0, 10) ?? s.createdAt.slice(0, 10)
+  const trace: Trace | undefined = TRACE ? [{ stage: 'input', data: { name: s.name, type: s.type, meetingDate: asOf, text: s.text } }] : undefined
   const ctx = {
     meetingDate: asOf,
     knownEntities: store.db.nodes.filter((n) => n.workspaceId === s.workspaceId)
       .map((n) => ({ label: n.label, type: n.type, status: n.status })),
+    trace,
   }
   try {
     const result = s.type === 'IMAGE' ? await analyzeImage(await loadAnalysisImage(s), s.name, ctx) : await analyzeText(s.text ?? '', undefined, ctx)
@@ -248,11 +268,26 @@ async function analyzeSource(sourceId: string) {
       status: 'DONE', summary: result.extraction.summary, ambiguities: result.extraction.ambiguities,
       ocrText: result.ocrText, analyzedWith: result.model, analyzedAt: now(),
     })
+    if (trace) {
+      trace.push({ stage: 'merge', data: report })
+      // The to-dos this source touched, as the demo receives them.
+      const touched = new Set(store.db.nodes.filter((n) => n.sourceIds.includes(s.id)).map((n) => n.id))
+      trace.push({ stage: 'views.actionItems', data: buildViews(store.state(s.workspaceId)!).actionItems.filter((a) => touched.has(a.id)) })
+    }
     console.log(`[analyze] ${s.name}: ${JSON.stringify(report)} via ${result.model} in ${((Date.now() - t0) / 1000).toFixed(1)}s`)
   } catch (e) {
     s.status = 'ERROR'
     s.error = (e as Error).message
+    trace?.push({ stage: 'error', data: s.error })
     console.error(`[analyze] ${s.name} failed:`, e)
+  }
+  if (trace) {
+    try {
+      fs.mkdirSync(TRACE_DIR, { recursive: true })
+      fs.writeFileSync(traceFile(s.id), JSON.stringify(trace, null, 2))
+    } catch (e) {
+      console.warn('[trace] could not write:', (e as Error).message)
+    }
   }
   persist()
 }

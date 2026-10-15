@@ -90,6 +90,50 @@ test('views: trend is computed as of each meeting', () => {
   assert.deepEqual(m3.dateChanges.map((c) => [c.label, c.from, c.to]), [['Checkout launch', '2026-10-31', '2026-11-15']])
 })
 
+// Action items as a photo of handwritten notes produces them: any of date, owner, status, description can be missing.
+const partial: WorkspaceState = {
+  ...state,
+  nodes: [
+    ...state.nodes,
+    node('nodue', 'Call the caterer', 'TASK', ['m2'], [{ sourceId: 'm2', asOf: '2026-09-15', status: 'OPEN' }]),
+    node('nostatus', 'Print the badges', 'TASK', ['m2'], [{ sourceId: 'm2', asOf: '2026-09-15', date: '2026-09-30' }]),
+    node('bare', 'Book a room', 'TASK', ['m3']),
+  ],
+}
+/** What an API client receives: JSON drops keys whose value is undefined. */
+const overTheWire = (v: unknown) => JSON.parse(JSON.stringify(v))
+
+test('views: complete action item keeps every field', () => {
+  const t1 = overTheWire(buildViews(partial, '2026-09-25')).actionItems.find((a: { id: string }) => a.id === 't1')
+  assert.equal(t1.status, 'DONE')
+  assert.equal(t1.due, '2026-09-12')
+  assert.deepEqual(t1.owners, ['Raj Patel'])
+  assert.equal(t1.overdue, false)
+})
+
+test('views: incomplete action items have every key, with null for unknown values (regression: KeyError \'due\')', () => {
+  const items = overTheWire(buildViews(partial, '2026-09-25')).actionItems as Record<string, unknown>[]
+  const keys = Object.keys(items.find((a) => a.id === 't1')!).sort()
+  for (const a of items) assert.deepEqual(Object.keys(a).sort(), keys, `${a.label} has the same shape as a complete item`)
+  const nodue = items.find((a) => a.id === 'nodue')!, nostatus = items.find((a) => a.id === 'nostatus')!, bare = items.find((a) => a.id === 'bare')!
+  assert.equal(nodue.due, null, 'no due date stays no due date')
+  assert.equal(nodue.overdue, false)
+  assert.equal(nostatus.status, 'OPEN', 'no status defaults to OPEN')
+  assert.equal(nostatus.due, '2026-09-30')
+  assert.deepEqual(bare.owners, [], 'no owner stays unassigned')
+  assert.equal(bare.description, null)
+  assert.equal(bare.due, null)
+  assert.equal(bare.status, 'OPEN')
+})
+
+test('views: undated action items sort after dated ones, done items last', () => {
+  const ids = buildViews(partial, '2026-09-25').actionItems.map((a) => a.id)
+  assert.deepEqual(ids.slice(0, 2), ['t2', 'nostatus'], 'dated open items first, earliest due first')
+  assert.deepEqual(ids.slice(2, 4).sort(), ['bare', 'nodue'], 'then undated open items (order between them unspecified)')
+  assert.equal(ids[4], 't1', 'done items last')
+  assert.match(buildReport(partial, '2026-09-25'), /\| OPEN \| Book a room \| _unassigned_ \| - \|/)
+})
+
 test('report: markdown includes changes, overdue and slips', () => {
   const md = buildReport(state, '2026-09-25')
   assert.match(md, /PCI audit\*\*: OPEN → \*\*RESOLVED/)

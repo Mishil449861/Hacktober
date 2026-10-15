@@ -1,0 +1,27 @@
+PROJECT: CampusConnect
+
+Kickoff — Oct 10
+
+Maya → Design
+- wireframes
+- homepage
+DUE: Oct 14
+
+Linh → Backend
+- set up API
+- connect DB
+DUE: Oct 16
+
+Alex → Research
+- look at 5 competitors
+DUE: Oct 13
+
+DECISION:
+React + Node
+
+BLOCKER:
+Need API credentials
+→ Linh waiting on access
+
+NEXT MEETING:
+Oct 17

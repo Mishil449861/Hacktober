@@ -89,12 +89,44 @@ test('free-form notes without headings: owner + due date bullets and TODO lines 
   assert.deepEqual(labels(p, 'TASK').map((t) => [t.label, t.date, t.status]), [
     ['Book the launch venue', '2026-10-20', 'OPEN'],
     ['Draft the press release', undefined, 'OPEN'],
-  ], 'a bullet with an owner but no due date and no TODO prefix is not assumed to be a task')
+  ], 'a bullet reporting past work ("presented ...") is not a task')
   assert.ok(edge(p, 'Dana Kim', 'RESPONSIBLE_FOR', 'Book the launch venue'))
   assert.ok(edge(p, 'Leo Marsh', 'RESPONSIBLE_FOR', 'Draft the press release'))
   assert.ok(edge(p, 'Dana Kim', 'OWNS', 'Q4 Launch'))
   assert.ok(edge(p, 'Leo Marsh', 'REPORTS_TO', 'Dana Kim'))
   assert.deepEqual(labels(p, 'DECISION').map((d) => d.label), ['Launch in Berlin'])
+})
+
+test('everyday bullets hand out work without dates: "X will", "X to", "X + Y:", "Need to"', () => {
+  const p = parseMinutes([
+    'Meeting 1 — Product Sync', '', 'Oct 14',
+    '- Sarah: finish homepage redesign by Friday',
+    '- Mike will review new UI',
+    '- Need to fix login bug',
+    '- Alex to investigate login issue',
+    '- Team agreed to launch beta next Tuesday',
+    '- Sarah + Mike: prepare demo',
+    '- Raj: out sick this week',
+  ].join('\n'), { meetingDate: '2026-10-14' })
+  assert.deepEqual(labels(p, 'TASK').map((t) => [t.label, t.date]), [
+    ['Finish homepage redesign', '2026-10-16'], ['Review new UI', undefined], ['Fix login bug', undefined],
+    ['Investigate login issue', undefined], ['Prepare demo', undefined],
+  ])
+  assert.ok(edge(p, 'Mike', 'RESPONSIBLE_FOR', 'Review new UI'))
+  assert.ok(edge(p, 'Alex', 'RESPONSIBLE_FOR', 'Investigate login issue'))
+  assert.ok(edge(p, 'Sarah', 'RESPONSIBLE_FOR', 'Prepare demo') && edge(p, 'Mike', 'RESPONSIBLE_FOR', 'Prepare demo'))
+  const fix = p.nodes.find((n) => n.label === 'Fix login bug')!
+  assert.ok(!p.edges.some((e) => e.targetTemporaryId === fix.temporaryId), '"Need to ..." names nobody')
+  assert.deepEqual(labels(p, 'MILESTONE').map((m) => [m.label, m.date]), [['Beta launch', '2026-10-20']], 'an agreed, dated launch is a milestone')
+})
+
+test('agreed/decided events become milestones; undated ones do not', () => {
+  const p = parseMinutes([
+    'We decided to release the mobile app on Nov 2.',
+    '- Ops plans to ship v2 by 2026-11-20',
+    '- We agreed to launch in Berlin',
+  ].join('\n'), { meetingDate: '2026-10-14' })
+  assert.deepEqual(labels(p, 'MILESTONE').map((m) => [m.label, m.date]), [['Mobile app release', '2026-11-02'], ['Ship v2', '2026-11-20']])
 })
 
 test('normalizeDates: month names, weekdays and relative days become ISO dates', () => {
@@ -105,6 +137,11 @@ test('normalizeDates: month names, weekdays and relative days become ISO dates',
   assert.equal(on('send it by Friday'), 'send it by 2026-10-09')
   assert.equal(on('by Tuesday'), 'by 2026-10-13', 'the same weekday means next week')
   assert.equal(on('due tomorrow'), 'due 2026-10-07')
+  assert.equal(on('launch beta next Tuesday'), 'launch beta 2026-10-13')
+  assert.equal(on('demo this Friday'), 'demo 2026-10-09')
+  assert.equal(on('meet on Monday'), 'meet on 2026-10-12')
+  assert.equal(on('by next Thursday'), 'by 2026-10-08')
+  assert.equal(on('upon Monday review'), 'upon Monday review', '"on" inside a word is not a date')
   assert.equal(on('kick-off is Jan 15'), 'kick-off is 2027-01-15', 'a long-past month means next year')
   assert.equal(on('Maya may send 5 invites'), 'Maya may send 5 invites', 'lowercase "may" is not a month')
 })

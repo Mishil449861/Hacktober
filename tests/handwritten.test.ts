@@ -1,0 +1,304 @@
+// Handwritten meeting notes: who owns which task, due dates, statuses, follow-up meetings.
+// Deterministic (no model calls): the notes parser, owner/date cleanup, merge into the graph, to-do view.
+// The model-dependent path (photo -> vision model) is checked by `npm run test:handwritten`.
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+
+// The merge step stores to DATA_DIR and may ask the local model about fuzzy matches: point both
+// somewhere harmless before the server modules load, so the tests never touch data/db.json or Ollama.
+process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'orgmap-test-'))
+process.env.OLLAMA_BASE_URL = 'http://127.0.0.1:9'
+process.env.OCR_ENABLED = 'false'
+const { parseMinutes, combineWithModel } = await import('../server/lib/minutes.ts')
+const { applyOwners, dropLeakedDates, sanitize } = await import('../server/lib/ai/provider.ts')
+const { mergeExtraction } = await import('../server/graph/reconcile.ts')
+const { buildViews } = await import('../server/views.ts')
+const { store } = await import('../server/store.ts')
+type Extraction = import('../src/shared/schema.ts').Extraction
+
+const fixture = (f: string) => fs.readFileSync(`tests/fixtures/handwritten/${f}`, 'utf8')
+
+/** What the parser makes of a note: one row per task, "label | owners | due | status". */
+function tasks(text: string, meetingDate = '2026-10-10', knownEntities: { label: string; type: string }[] = []) {
+  const p = parseMinutes(text, { meetingDate, knownEntities })
+  const label = (id: string) => p.nodes.find((n) => n.temporaryId === id)?.label
+  return p.nodes.filter((n) => n.type === 'TASK').map((t) => [
+    t.label,
+    p.edges.filter((e) => e.targetTemporaryId === t.temporaryId && e.relationship === 'RESPONSIBLE_FOR').map((e) => label(e.sourceTemporaryId)).join(','),
+    t.date ?? '',
+    t.status ?? '',
+  ].join(' | '))
+}
+const ofType = (text: string, type: string, meetingDate = '2026-10-10') =>
+  parseMinutes(text, { meetingDate }).nodes.filter((n) => n.type === type).map((n) => `${n.label}${n.status ? ` [${n.status}]` : ''}`)
+
+// ---------------------------------------------------------------- ownership
+
+test('1. explicit assignment: "Name → task → date" keeps each task with its own person', () => {
+  assert.deepEqual(tasks('Maya → Design homepage → Oct 14\nLinh → Build API → Oct 16\nAlex → Research competitors → Oct 18'), [
+    'Design homepage | Maya | 2026-10-14 | OPEN',
+    'Build API | Linh | 2026-10-16 | OPEN',
+    'Research competitors | Alex | 2026-10-18 | OPEN',
+  ])
+  // Same without dates, and with OCR-style ASCII arrows.
+  assert.deepEqual(tasks('Maya -> Design homepage\nLinh --> Build API\nAlex => Research competitors'), [
+    'Design homepage | Maya |  | OPEN', 'Build API | Linh |  | OPEN', 'Research competitors | Alex |  | OPEN',
+  ])
+})
+
+test('2. name heading: every item listed under a name belongs to that name, until the next name', () => {
+  const expected = ['Design homepage | Maya |  | OPEN', 'Create logo | Maya |  | OPEN', 'Build API | Linh |  | OPEN']
+  assert.deepEqual(tasks('Maya\n- Design homepage\n- Create logo\n\nLinh\n- Build API'), expected, 'bare name over bullets')
+  assert.deepEqual(tasks('Maya:\nDesign homepage\nCreate logo\nLinh:\nBuild API'), expected, '"Name:" over unbulleted lines')
+  assert.deepEqual(tasks('MAYA\n- Design homepage\n- Create logo\n\nLINH\n- Build API'), expected, 'names in block capitals')
+  // "Maya → Design" over a list: Design is her area, the items are her tasks, the DUE line is theirs.
+  assert.deepEqual(tasks('Maya → Design\n- wireframes\n- homepage\nDUE: Oct 14\n\nLinh → Backend\n- set up API\nDUE: Oct 16'), [
+    'Wireframes | Maya | 2026-10-14 | OPEN', 'Homepage | Maya | 2026-10-14 | OPEN', 'Set up API | Linh | 2026-10-16 | OPEN',
+  ])
+  const p = parseMinutes('Maya → Design\n- wireframes', {})
+  assert.equal(p.nodes.find((n) => n.label === 'Maya')?.description, 'Design')
+  assert.equal(p.nodes.some((n) => n.label === 'Design'), false, 'the area is not a task or a person')
+})
+
+test('2b. a "DUE" line belongs to its own group, not to the next person', () => {
+  assert.deepEqual(tasks('Maya\n- Design homepage\n- Create logo\nDUE: Oct 14\n\nLinh\n- Build API\nDUE Oct 16'), [
+    'Design homepage | Maya | 2026-10-14 | OPEN', 'Create logo | Maya | 2026-10-14 | OPEN', 'Build API | Linh | 2026-10-16 | OPEN',
+  ])
+  // Weekday due dates, with and without a colon, resolved against the meeting date (Sat 2026-10-10).
+  assert.deepEqual(tasks('Maya\nlanding page\nDUE Friday\n\nLinh\nAPI integration\nDUE: Mon'), [
+    'Landing page | Maya | 2026-10-16 | OPEN', 'API integration | Linh | 2026-10-12 | OPEN',
+  ])
+})
+
+test('3. missing owner: a task with no name stays unassigned (no guess, no crash)', () => {
+  assert.deepEqual(tasks('Fix login\nDUE Oct 20'), ['Fix login |  | 2026-10-20 | OPEN'])
+  assert.deepEqual(tasks('Fix login, due Oct 20'), ['Fix login |  | 2026-10-20 | OPEN'])
+  // A name elsewhere in the notes does not adopt it.
+  assert.deepEqual(tasks('Maya → Design homepage\n\n\nFix login\nDUE Oct 20'), [
+    'Design homepage | Maya |  | OPEN', 'Fix login |  | 2026-10-20 | OPEN',
+  ])
+})
+
+test('status written after an arrow on the item line: "privacy policy → started"', () => {
+  assert.deepEqual(tasks('Maya:\n✓ landing page DONE\nprivacy policy → started\nDUE Oct 21'), [
+    'Landing page | Maya |  | DONE', 'Privacy policy | Maya | 2026-10-21 | IN_PROGRESS',
+  ])
+})
+
+test('a vision transcript without blank lines: bulleted items under bare names, an unbulleted item after them', () => {
+  // Verbatim from qwen2.5vl:7b reading tests/fixtures/handwritten/01-sync-photo.png (crossed-out line removed).
+  const transcript = 'weekly sync Oct 6\nMaya\n- landing page\n- logo\nDUE Fri\nLinh → API integration\nDUE Mon\nAlex\n- competitor research\nDUE Wed\nFix login\nDUE Oct 20\nBLOCKER: waiting on API key'
+  assert.deepEqual(tasks(transcript, '2026-10-06'), [
+    'Landing page | Maya | 2026-10-09 | OPEN',
+    'Logo | Maya | 2026-10-09 | OPEN',
+    'API integration | Linh | 2026-10-12 | OPEN',
+    'Competitor research | Alex | 2026-10-07 | OPEN',
+    'Fix login |  | 2026-10-20 | OPEN',
+  ])
+})
+
+test('4. missing due date: a valid task with no date', () => {
+  assert.deepEqual(tasks('Maya\n- Fix login'), ['Fix login | Maya |  | OPEN'])
+  assert.equal(parseMinutes('Maya\n- Fix login', {}).nodes.find((n) => n.type === 'TASK')?.date, undefined)
+})
+
+test('5. mixed meeting: 3 people, dates, an unassigned task, a done task, a blocker, a decision', () => {
+  const note = [
+    'SPRINT SYNC',
+    '',
+    'Maya:',
+    '- landing page',
+    '- ✓ logo DONE',
+    'DUE: Oct 14',
+    '',
+    'Linh → Build API → Oct 16',
+    '',
+    'Alex',
+    '- competitor research',
+    '- pricing page (Linh)',
+    'DUE Fri',
+    '',
+    '',
+    'Fix login',
+    'DUE Oct 20',
+    '',
+    'BLOCKER:',
+    'waiting on API key',
+    '',
+    'DECISION:',
+    'Launch stays Oct 31',
+  ].join('\n')
+  assert.deepEqual(tasks(note), [
+    'Landing page | Maya | 2026-10-14 | OPEN',
+    'Logo | Maya |  | DONE',
+    'Build API | Linh | 2026-10-16 | OPEN',
+    'Competitor research | Alex | 2026-10-16 | OPEN',
+    'Pricing page | Linh | 2026-10-16 | OPEN',
+    'Fix login |  | 2026-10-20 | OPEN',
+  ])
+  assert.deepEqual(ofType(note, 'BLOCKER'), ['API key [OPEN]'])
+  assert.deepEqual(ofType(note, 'DECISION'), ['Launch stays Oct 31'])
+  assert.deepEqual(ofType(note, 'PERSON').sort(), ['Alex', 'Linh', 'Maya'])
+})
+
+test('real notes, kickoff: owners, group due dates, decision and blocker', () => {
+  const note = fixture('01-kickoff.txt')
+  assert.deepEqual(tasks(note, '2026-10-07'), [
+    'Wireframes | Maya | 2026-10-14 | OPEN',
+    'Homepage | Maya | 2026-10-14 | OPEN',
+    'Set up API | Linh | 2026-10-16 | OPEN',
+    'Connect DB | Linh | 2026-10-16 | OPEN',
+    'Look at 5 competitors | Alex | 2026-10-13 | OPEN',
+  ])
+  assert.deepEqual(ofType(note, 'DECISION'), ['React + Node'])
+  assert.deepEqual(ofType(note, 'BLOCKER'), ['API credentials [OPEN]'])
+  assert.deepEqual(ofType(note, 'PROJECT'), ['CampusConnect'])
+  assert.equal(ofType(note, 'MILESTONE').length, 0, '"NEXT MEETING: Oct 17" is not a deliverable')
+})
+
+test('real notes, weekly sync: ✓ / DONE / "→ started" / "~ halfway", NEW items, ALL → date', () => {
+  const note = fixture('02-weekly-sync.txt')
+  assert.deepEqual(tasks(note), [
+    'Landing page | Maya |  | DONE',
+    'Logo | Maya |  | DONE',
+    'Privacy policy | Maya | 2026-10-21 | IN_PROGRESS',
+    'API integration | Linh |  | DONE',
+    'DB testing | Linh | 2026-10-22 | IN_PROGRESS',
+    'Competitor research | Alex |  | DONE',
+    'Pricing research | Alex | 2026-10-23 | OPEN',
+    'Final QA before demo |  | 2026-10-23 | OPEN',
+    'Polish UI | Maya | 2026-10-22 | OPEN',
+    'Fix test account | Linh | 2026-10-20 | OPEN',
+  ])
+  assert.deepEqual(ofType(note, 'BLOCKER'), ['API key issue [RESOLVED]', 'DB test account [OPEN]'])
+  assert.deepEqual(ofType(note, 'DECISION'), ['Demo stays Oct 24'])
+  const p = parseMinutes(note, { meetingDate: '2026-10-10' })
+  assert.equal(p.nodes.find((n) => n.label === 'Competitor research')?.description, '5 competitors added', 'an outcome line is not a new task')
+  assert.equal(p.nodes.some((n) => n.type === 'PERSON' && /^(all|new|need)$/i.test(n.label)), false)
+})
+
+test('the desired outcome: names over items, DUE weekdays, a blocker', () => {
+  const note = 'WEEKLY SYNC\n\nMaya\nlanding page\nDUE Friday\n\nLinh\nAPI integration\nDUE Monday\n\nAlex\ncompetitor research\nDUE Wednesday\n\nBLOCKER:\nwaiting on API key'
+  assert.deepEqual(tasks(note), [
+    'Landing page | Maya | 2026-10-16 | OPEN', 'API integration | Linh | 2026-10-12 | OPEN', 'Competitor research | Alex | 2026-10-14 | OPEN',
+  ])
+  assert.deepEqual(ofType(note, 'BLOCKER'), ['API key [OPEN]'])
+  assert.deepEqual(ofType(note, 'PERSON'), ['Maya', 'Linh', 'Alex'])
+})
+
+test('not people: process-flow arrows, a sticky-note name under its task, crossed-out items, section words', () => {
+  const flow = 'Order Received -> Fraud Check\nFraud Check -> Payment Capture\nPayment Capture -> Ledger Posting'
+  assert.deepEqual(parseMinutes(flow, {}).nodes, [], 'a diagram is not a list of assignments')
+  assert.deepEqual(parseMinutes('Checkout → Payments → Ledger', {}).nodes, [], 'a chain of arrows is a flow')
+  // OCR of a sticky note: the name sits under the task, then the next note follows.
+  const sticky = 'Renew fraud vendor contract\nSarah\nWrite Checkout launch runbook\nPriya'
+  assert.deepEqual(tasks(sticky), [], 'no owner block is guessed from a name between two notes')
+  assert.deepEqual(tasks('Maya:\n- landing page\n~~- old logo~~\n- privacy policy'), ['Landing page | Maya |  | OPEN', 'Privacy policy | Maya |  | OPEN'])
+  assert.equal(ofType('Design\n- wireframes', 'PERSON').length, 0, '"Design" is an area, not a person')
+  // A known system is never an owner, whatever the arrow says.
+  assert.deepEqual(parseMinutes('Checkout → retry logic', { knownEntities: [{ label: 'Checkout', type: 'SYSTEM' }] }).nodes, [])
+})
+
+// ---------------------------------------------------------------- model output cleanup
+
+const model = (nodes: Extraction['nodes'], edges: Extraction['edges'] = []): Extraction => ({ summary: '', ambiguities: [], nodes, edges })
+
+test('dates the model resolves from "Oct 14" / "DUE Fri" are kept; the meeting date leaking in is not', () => {
+  const x = dropLeakedDates(model([
+    { temporaryId: 't1', label: 'Wireframes', type: 'TASK', confidence: 1, date: '2026-10-14' },
+    { temporaryId: 't2', label: 'Landing page', type: 'TASK', confidence: 1, date: '2026-10-16' },
+    { temporaryId: 't3', label: 'Logo', type: 'TASK', confidence: 1, date: '2026-10-10' },
+    { temporaryId: 't4', label: 'Invented', type: 'TASK', confidence: 1, date: '2026-12-01' },
+  ]), 'Maya\n- wireframes\nDUE: Oct 14\nlanding page\nDUE Fri\nlogo', '2026-10-10')
+  assert.deepEqual(x.nodes.map((n) => n.date), ['2026-10-14', '2026-10-16', undefined, undefined])
+})
+
+test('owner field: becomes the ownership edge, overrides a conflicting guessed edge, never invents a person', () => {
+  const x = applyOwners(model([
+    { temporaryId: 'p1', label: 'Linh', type: 'PERSON', confidence: 1 },
+    { temporaryId: 't1', label: 'Competitor research', type: 'TASK', confidence: 1, owner: 'Alex' },
+    { temporaryId: 't2', label: 'Fix login', type: 'TASK', confidence: 1, owner: null },
+    { temporaryId: 't3', label: 'Final QA', type: 'TASK', confidence: 1, owner: 'ALL' },
+    { temporaryId: 't4', label: 'Polish UI', type: 'TASK', confidence: 1, owner: 'Jordan' },
+  ], [{ sourceTemporaryId: 'p1', targetTemporaryId: 't1', relationship: 'RESPONSIBLE_FOR', confidence: 0.7 }]),
+  'Alex: competitor research\nLinh\nFix login\nALL → final QA\npolish UI')
+  const label = (id: string) => x.nodes.find((n) => n.temporaryId === id)?.label
+  assert.deepEqual(x.edges.map((e) => `${label(e.sourceTemporaryId)} -${e.relationship}-> ${label(e.targetTemporaryId)}`), [
+    'Alex -RESPONSIBLE_FOR-> Competitor research',
+  ])
+  assert.ok(x.ambiguities.some((a) => a.includes('Jordan')), 'an owner who is not in the notes is reported, not assigned')
+  assert.equal(x.nodes.some((n) => 'owner' in n), false, 'ownership lives in the graph only')
+})
+
+test('sanitize: "Maya → Design" read as REPORTS_TO is not a reporting line', () => {
+  const x = sanitize(model([
+    { temporaryId: 'm', label: 'Maya', type: 'PERSON', confidence: 1 },
+    { temporaryId: 'd', label: 'Design', type: 'PROCESS', confidence: 1 },
+    { temporaryId: 't', label: 'Landing page', type: 'TASK', confidence: 1 },
+  ], [
+    { sourceTemporaryId: 'm', targetTemporaryId: 'd', relationship: 'REPORTS_TO', confidence: 1 },
+    { sourceTemporaryId: 'm', targetTemporaryId: 't', relationship: 'REPORTS_TO', confidence: 1 },
+  ]))
+  assert.deepEqual(x.edges.map((e) => e.relationship), ['PART_OF', 'RESPONSIBLE_FOR'])
+})
+
+test('a section heading the parser cannot read does not erase what the model found there', () => {
+  const text = '## Decisions\nWe talked about the stack for a while and settled on React.'
+  const x = combineWithModel(model([{ temporaryId: 'd', label: 'Use React', type: 'DECISION', confidence: 0.9 }]), parseMinutes(text, {}), text)
+  assert.deepEqual(x.nodes.map((n) => n.label), ['Use React'])
+})
+
+// ---------------------------------------------------------------- graph + to-do view, across meetings
+
+let n = 0
+/** One meeting through the deterministic path: notes parser -> cleanup -> merge -> views. */
+async function meeting(ws: string, text: string, date: string) {
+  const knownEntities = store.db.nodes.filter((x) => x.workspaceId === ws).map((x) => ({ label: x.label, type: x.type, status: x.status }))
+  const parsed = parseMinutes(text, { meetingDate: date, knownEntities })
+  const extraction = sanitize(combineWithModel(model([]), parsed, text), knownEntities)
+  const id = `src${++n}`
+  store.db.sources.push({ id, workspaceId: ws, type: 'TEXT', name: `Meeting ${date}`, status: 'DONE', meetingDate: date, text, createdAt: `${date}T10:00:00Z` })
+  await mergeExtraction(ws, id, extraction, date)
+  return buildViews(store.state(ws)!, '2026-10-12')
+}
+const row = (a: { label: string; owners: string[]; due: string | null; status: string }) => `${a.label} | ${a.owners.join(',')} | ${a.due ?? ''} | ${a.status}`
+
+test('6. follow-up meeting updates existing tasks (no duplicates), keeps owners, adds the new task', async () => {
+  const ws = store.createWorkspace('follow-up').id
+  await meeting(ws, 'Maya → landing page → TODO\nLinh → API → TODO', '2026-10-01')
+  const v = await meeting(ws, 'Maya → landing page → DONE\nLinh → API → DONE\nMaya → privacy policy → TODO', '2026-10-08')
+  assert.deepEqual(v.actionItems.map(row).sort(), [
+    'API | Linh |  | DONE', 'Landing page | Maya |  | DONE', 'Privacy policy | Maya |  | OPEN',
+  ])
+  assert.equal(v.kpis.people, 2)
+  const latest = v.changes.at(-1)!
+  assert.deepEqual(latest.statusChanges.map((c) => `${c.label}: ${c.from} -> ${c.to}`).sort(), ['API: OPEN -> DONE', 'Landing page: OPEN -> DONE'])
+})
+
+test('6b. handwritten follow-up: "✓ landing page DONE" ticks off the task, "DB testing / DUE" goes to Linh', async () => {
+  const ws = store.createWorkspace('handwritten follow-up').id
+  await meeting(ws, 'Maya\n- landing page\n- logo\nDUE Oct 9\n\nLinh\n- API integration', '2026-10-01')
+  const v = await meeting(ws, 'Maya:\n✓ landing page DONE\n\nLinh:\nDB testing\nDUE Oct 22', '2026-10-08')
+  assert.deepEqual(v.actionItems.map(row).sort(), [
+    'API integration | Linh |  | OPEN',
+    'DB testing | Linh | 2026-10-22 | OPEN',
+    'Landing page | Maya | 2026-10-09 | DONE',
+    'Logo | Maya | 2026-10-09 | OPEN',
+  ])
+  assert.equal(v.actionItems.filter((a) => /landing page/i.test(a.label)).length, 1, 'no "Landing page DONE" duplicate')
+})
+
+test('6c. the two real meetings in sequence: kickoff then weekly sync', async () => {
+  const ws = store.createWorkspace('real').id
+  await meeting(ws, fixture('01-kickoff.txt'), '2026-10-07')
+  const v = await meeting(ws, fixture('02-weekly-sync.txt'), '2026-10-10')
+  const byLabel = (l: string) => v.actionItems.find((a) => a.label === l)
+  assert.deepEqual(byLabel('Competitor research')?.owners, ['Alex'], 'not Linh (the bug seen in data/db.json)')
+  assert.deepEqual(byLabel('DB testing')?.owners, ['Linh'])
+  assert.equal(byLabel('Wireframes')?.due, '2026-10-14', 'kickoff due dates survive into the to-do list')
+  assert.equal(v.actionItems.filter((a) => a.owners.length === 0).map((a) => a.label).join(), 'Final QA before demo')
+  for (const a of v.actionItems) assert.ok(a.label && Array.isArray(a.owners) && 'due' in a && a.status, `${a.label} has the full shape`)
+})
