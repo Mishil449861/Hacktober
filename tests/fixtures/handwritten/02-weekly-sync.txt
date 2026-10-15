@@ -1,0 +1,49 @@
+SAFE SPACE AI — WEEKLY SYNC
+Oct 19
+
+Maya:
+✓ landing page DONE
+✓ logo DONE
+
+privacy policy
+→ started
+DUE: Oct 21
+
+Linh:
+✓ API integration DONE
+✓ API key issue RESOLVED
+
+DB testing
+~ halfway
+DUE: Oct 22
+
+Alex:
+✓ competitor research DONE
+5 competitors added
+
+NEW:
+pricing research
+DUE: Oct 23
+
+
+BLOCKER:
+DB test account still broken
+→ waiting on IT
+
+
+DECISION:
+Demo stays Oct 24
+
+Need:
+final QA before demo
+ALL → Oct 23
+
+
+Maya → polish UI
+DUE Oct 22
+
+Linh → fix test account
+DUE Oct 20
+
+Alex → pricing research
+DUE Oct 23

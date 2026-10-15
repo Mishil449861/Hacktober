@@ -32,6 +32,40 @@ async function post(url: string, body: unknown) {
   return res.json()
 }
 
+/**
+ * Ollama chat, streamed. Not streaming means no response headers until the whole answer is generated, and
+ * Node's fetch gives up waiting for headers after 300 s ("fetch failed", HeadersTimeoutError) whatever
+ * TIMEOUT_MS says: a slow photo on a small GPU then silently fell back to tesseract OCR of handwriting.
+ */
+async function streamChat(url: string, body: Record<string, unknown>) {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...body, stream: true }),
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  })
+  if (!res.ok || !res.body) throw new Error(`${url} -> ${res.status} ${await res.text()}`)
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buf = '', content = '', doneReason: string | undefined
+  const take = (line: string) => {
+    if (!line.trim()) return
+    const chunk = JSON.parse(line) as { message?: { content?: string }; done?: boolean; done_reason?: string; error?: string }
+    if (chunk.error) throw new Error(`${url} -> ${chunk.error}`)
+    content += chunk.message?.content ?? ''
+    if (chunk.done) doneReason = chunk.done_reason
+  }
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buf += decoder.decode(value, { stream: true })
+    let nl
+    while ((nl = buf.indexOf('\n')) >= 0) { take(buf.slice(0, nl)); buf = buf.slice(nl + 1) }
+  }
+  take(buf)
+  return { message: { content }, done_reason: doneReason }
+}
+
 // ---------------- Ollama ----------------
 
 /**
@@ -114,9 +148,8 @@ export function ollamaRuntime(): LocalRuntime {
       if (!model) throw new Error(req.vision ? 'No local vision model available' : 'No local text model available')
       const c = await capabilities(model).catch(() => [] as string[])
       await switchTo(model)
-      const json = (await post(`${base}/api/chat`, {
+      const json = await streamChat(`${base}/api/chat`, {
         model,
-        stream: false,
         keep_alive: keepAlive,
         format: req.jsonSchema,
         // qwen3-style reasoning models: skip the <think> phase, we want direct JSON.
@@ -128,7 +161,7 @@ export function ollamaRuntime(): LocalRuntime {
           { role: 'system', content: req.system },
           { role: 'user', content: req.user, ...(req.images?.length ? { images: req.images } : {}) },
         ],
-      })) as { message: { content: string }; done_reason?: string }
+      })
       if (json.done_reason && json.done_reason !== 'stop') {
         console.warn(`[ollama] ${model} stopped early (done_reason=${json.done_reason}, ${json.message.content.length} chars)`)
       }

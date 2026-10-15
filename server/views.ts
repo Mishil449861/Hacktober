@@ -49,12 +49,14 @@ export function buildViews(st: WorkspaceState, todayOverride?: string) {
   const byType = (t: string) => st.nodes.filter((n) => n.type === t)
 
   // ---------- action items ----------
+  // Every key is always present: unknown optional fields are null, not undefined, because JSON drops
+  // undefined keys and API clients (demo/app.py) would see a different shape for an undated to-do.
   const actionItems = byType('TASK').map((n) => {
     const status = n.status ?? 'OPEN'
     return {
-      id: n.id, label: n.label, description: n.description, owners: ownersOf(n.id), due: n.date, status,
+      id: n.id, label: n.label, description: n.description ?? null, owners: ownersOf(n.id), due: n.date ?? null, status,
       overdue: !!n.date && n.date < today && !DONE.has(status),
-      raisedOn: firstSeen(n), raisedIn: nameOf(firstSource(n) ?? ''), lastUpdate: lastUpdate(n),
+      raisedOn: firstSeen(n), raisedIn: nameOf(firstSource(n) ?? ''), lastUpdate: lastUpdate(n) ?? null,
       meetings: n.sourceIds.map(nameOf),
     }
   }).sort((a, b) => Number(DONE.has(a.status)) - Number(DONE.has(b.status)) || (a.due ?? '9999').localeCompare(b.due ?? '9999'))
@@ -159,17 +161,17 @@ export function buildViews(st: WorkspaceState, todayOverride?: string) {
 
   // ---------- change log per source ----------
   const changes = sources.map((s) => {
-    const created = st.nodes.filter((n) => firstSource(n) === s.id).map((n) => ({ label: n.label, type: n.type }))
-    const statusChanges: { label: string; type: string; from?: string; to: string }[] = []
-    const dateChanges: { label: string; from?: string; to: string }[] = []
+    const created = st.nodes.filter((n) => firstSource(n) === s.id).map((n) => ({ id: n.id, label: n.label, type: n.type }))
+    const statusChanges: { id: string; label: string; type: string; from?: string; to: string }[] = []
+    const dateChanges: { id: string; label: string; from?: string; to: string }[] = []
     for (const n of st.nodes) {
       const h = [...(n.history ?? [])].sort((a, b) => a.asOf.localeCompare(b.asOf))
       h.forEach((e, i) => {
         if (e.sourceId !== s.id) return
         const prevStatus = h.slice(0, i).filter((x) => x.status).at(-1)?.status
         const prevDate = h.slice(0, i).filter((x) => x.date).at(-1)?.date
-        if (e.status && prevStatus && e.status !== prevStatus) statusChanges.push({ label: n.label, type: n.type, from: prevStatus, to: e.status })
-        if (e.date && prevDate && e.date !== prevDate) dateChanges.push({ label: n.label, from: prevDate, to: e.date })
+        if (e.status && prevStatus && e.status !== prevStatus) statusChanges.push({ id: n.id, label: n.label, type: n.type, from: prevStatus, to: e.status })
+        if (e.date && prevDate && e.date !== prevDate) dateChanges.push({ id: n.id, label: n.label, from: prevDate, to: e.date })
       })
     }
     return { sourceId: s.id, name: s.name, date: srcDate(s), type: s.type, origin: s.origin, status: s.status, summary: s.summary, created, statusChanges, dateChanges }

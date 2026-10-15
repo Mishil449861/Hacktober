@@ -35,9 +35,21 @@ const nodeType = z.preprocess(
   z.enum(NODE_TYPES).catch('OTHER'),
 )
 
-/** Lenient parser for local-model extraction output. Unknown enums are coerced, never trusted. */
+/**
+ * Lenient parser for local-model extraction output. Unknown enums are coerced, never trusted.
+ *
+ * Data contract for an action item (TASK node), from here to the to-do list:
+ * - label (the to-do itself): required. A node without one fails validation; it is never invented.
+ * - owner: optional. The model states it as a name on the node; cleanup turns it into a
+ *   PERSON/TEAM -RESPONSIBLE_FOR-> TASK edge (the graph is the one place ownership is stored).
+ *   Missing = unassigned; views send `owners: []`.
+ * - date (due): optional. Missing = no due date; views send `due: null`. Never defaulted.
+ * - status: optional. A new item without one starts OPEN; on an existing item it means "unchanged".
+ */
 export const ExtractionSchema = z.object({
   summary: z.string().catch(''),
+  /** Vision only: the image's text, line by line, with its layout marked (names, "- " items, ✓, →). */
+  transcript: z.string().max(12000).optional().catch(undefined),
   nodes: z.array(z.object({
     temporaryId: z.coerce.string().min(1),
     label: z.string().trim().min(1).max(120),
@@ -45,6 +57,8 @@ export const ExtractionSchema = z.object({
     description: z.string().max(1000).optional().catch(undefined),
     status: nodeStatus,
     date: isoDate,
+    /** TASK only: who it is assigned to, as written. Absent when the source names nobody. */
+    owner: z.string().trim().max(80).nullish().catch(undefined),
     confidence,
   })).max(200),
   edges: z.array(z.object({
@@ -74,6 +88,7 @@ export const EXTRACTION_JSON_SCHEMA = {
           description: { type: 'string' },
           status: { type: 'string', enum: [...NODE_STATUSES] },
           date: { type: 'string', description: 'YYYY-MM-DD: due date (TASK), target date (MILESTONE)' },
+          owner: { type: 'string', description: 'TASK: name of the person or team it is assigned to, as written. Omit if none is written.' },
           confidence: { type: 'number' },
         },
         required: ['temporaryId', 'label', 'type', 'confidence'],
@@ -96,6 +111,13 @@ export const EXTRACTION_JSON_SCHEMA = {
     ambiguities: { type: 'array', items: { type: 'string' } },
   },
   required: ['summary', 'nodes', 'edges', 'ambiguities'],
+} as const
+
+/** For photos: the transcript comes first, so the model reads the page before it structures it. */
+export const VISION_EXTRACTION_JSON_SCHEMA = {
+  ...EXTRACTION_JSON_SCHEMA,
+  properties: { transcript: { type: 'string' }, ...EXTRACTION_JSON_SCHEMA.properties },
+  required: ['transcript', ...EXTRACTION_JSON_SCHEMA.required],
 } as const
 
 export const ReconcileSchema = z.object({

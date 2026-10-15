@@ -18,21 +18,13 @@ from pathlib import Path
 import requests
 import streamlit as st
 
+from todos import NEW_COLOR, CHANGED_COLOR, changes_by_item, friendly, short, todo_table
+
 API = os.environ.get("ORGMAP_API", "http://localhost:8787")
 PROJECT = "Demo"
 WHITEBOARD = Path(__file__).parent / "whiteboard.png"
-MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 today = dt.date.today()
-short = lambda d: f"{MONTHS[d.month - 1]} {d.day}"  # noqa: E731  ("Oct 10", independent of the OS language)
-
-
-def friendly(iso: str | None) -> str:
-    if not iso:
-        return ""
-    d = dt.date.fromisoformat(iso)
-    return f"{DAYS[d.weekday()]}, {short(d)}"
 
 
 # The two prepared notes. Dates are computed from today so the story always reads as current.
@@ -121,31 +113,40 @@ if stage:
         what = "the photo" if latest["type"] == "IMAGE" else "the update"
         st.success(f"**What {what} changed**\n\n" + "\n\n".join(lines))
 
+    # From the second input on, mark what the latest one added (green) and changed (orange). On the first
+    # notes everything is new, so nothing is marked.
+    change = latest if stage >= 2 else None
+    marks = changes_by_item(change)
     st.subheader("To-do list")
-    if views["actionItems"]:
-        rows = ["| To-do | Who | By when |", "|---|---|---|"]
-        for a in sorted(views["actionItems"], key=lambda a: (a["status"] == "DONE", a["due"] or "9999")):
-            is_done = a["status"] in ("DONE", "RESOLVED")
-            label = f"~~{a['label']}~~" if is_done else f"**{a['label']}**"
-            when = "Done" if is_done else (friendly(a["due"]) + (" (overdue)" if a["overdue"] else ""))
-            rows.append(f"| {label} | {', '.join(a['owners']) or 'nobody yet'} | {when or 'no date'} |")
-        st.markdown("\n".join(rows))
+    table, unreadable = todo_table(views.get("actionItems") or [], change)
+    if table:
+        st.markdown(table)
+        if marks:
+            st.caption(f":{NEW_COLOR}[■ added] and :{CHANGED_COLOR}[■ changed] by the latest update")
     else:
         st.caption("No to-dos found yet.")
+    if unreadable:
+        st.caption(f"{unreadable} to-do(s) had no text and aren't shown.")
 
     left, right = st.columns(2)
     with left:
         st.subheader("Decisions")
         if views["decisions"]:
             for d in reversed(views["decisions"]):
-                st.markdown(f"- {d['label']}")
+                if (marks.get(d.get("id")) or marks.get(d["label"].lower()) or {}).get("new"):
+                    st.markdown(f"- :{NEW_COLOR}[{d['label']}] :{NEW_COLOR}-badge[New]")
+                else:
+                    st.markdown(f"- {d['label']}")
         else:
             st.caption("None yet.")
         open_blockers = [b for b in views["blockers"] if b["status"] == "OPEN"]
         if open_blockers:
             st.subheader("Blockers")
             for b in open_blockers:
-                st.markdown(f"- **{b['label']}**" + (f" (blocks {', '.join(b['blocks'])})" if b["blocks"] else ""))
+                label = f"**{b['label']}**"
+                if (marks.get(b.get("id")) or marks.get(b["label"].lower()) or {}).get("new"):
+                    label = f":{NEW_COLOR}[{label}] :{NEW_COLOR}-badge[New]"
+                st.markdown(f"- {label}" + (f" (blocks {', '.join(b['blocks'])})" if b["blocks"] else ""))
     with right:
         st.subheader("Who's who")
         people = {n["id"]: n["label"] for n in views["orgChart"]["nodes"] if n["type"] == "PERSON"}
@@ -154,7 +155,10 @@ if stage:
         if reports:
             dot = ['digraph G { rankdir=BT; bgcolor="transparent"; node [shape=box style="rounded,filled" fillcolor=white '
                    'color="#2a78d6" penwidth=2 fontname=Helvetica fontsize=12]; edge [color="#898781" arrowsize=0.7];']
-            dot += [f'"{i}" [label="{name}"];' for i, name in people.items() if any(i in r for r in reports)]
+            # People the latest update introduced get a green box.
+            new_style = ' fillcolor="#e6f4ea" color="#1e8e3e"'
+            dot += [f'"{i}" [label="{name}"{new_style if (marks.get(i) or {}).get("new") else ""}];'
+                    for i, name in people.items() if any(i in r for r in reports)]
             dot += [f'"{a}" -> "{b}";' for a, b in reports]
             dot.append("}")
             st.graphviz_chart("\n".join(dot))

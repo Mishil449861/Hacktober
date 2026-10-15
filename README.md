@@ -127,8 +127,10 @@ Then open **http://localhost:8501**. Ollama must be running (it starts with Wind
 | `npm run dev` | Server on `:8787` (auto-reload) and the graph editor on `:5173` |
 | `npm run demo` | Demo page on `:8501`; needs `npm run dev` running and the Python environment active |
 | `npm test` | Unit tests (no model needed, about 1 second) |
+| `npm run test:demo` | Demo page tests (no server or model needed); Python environment active |
 | `npm run test:eval` | Extraction accuracy on 6 cases, against the running server and model |
 | `npm run test:scenario` | A 4-meeting, 2-photo project, checked end to end |
+| `npm run test:handwritten` | Handwritten notes, first meeting then follow-up, as photos and typed, against the running server and model |
 | `npm run typecheck` | TypeScript check |
 
 ---
@@ -147,9 +149,23 @@ Plain sentences work. These patterns are read exactly, with no guessing by the m
 | `Chloe reports to Maya.` | a reporting line |
 | `The launch moves from Oct 31 to Nov 15.` | the existing milestone, moved, with the slip recorded |
 
-Dates can be `Oct 10`, `October 10th`, `10 Oct`, `2026-10-10`, `by Friday`, `due tomorrow`. Longer, formal minutes with headings (`## Action items`, `## Decisions`, `## Risks`, `## Milestones`, `## Updates`) work too; see [tests/fixtures/scenarios](tests/fixtures/scenarios) for examples.
+Dates can be `Oct 10`, `October 10th`, `10 Oct`, `2026-10-10`, `by Friday`, `DUE: Fri`, `due tomorrow`. Longer, formal minutes with headings (`## Action items`, `## Decisions`, `## Risks`, `## Milestones`, `## Updates`) work too; see [tests/fixtures/scenarios](tests/fixtures/scenarios) for examples.
 
-The same rules apply to photos: text on a whiteboard is read by OCR and parsed the same way, and the vision model adds what only a picture shows (boxes, arrows, sticky-note columns, org-chart lines).
+Quick handwritten-style lists work the same way (examples in [tests/fixtures/handwritten](tests/fixtures/handwritten)):
+
+| You write | It becomes |
+|---|---|
+| `Maya` or `Maya:` with items under it | each item is a to-do for Maya, up to the next name or heading |
+| `Maya → Design homepage → Oct 14` | a to-do for Maya, due Oct 14 (`->` works too) |
+| `Maya → Design` with `- items` under it | the items are Maya's; "Design" is her area |
+| `DUE: Oct 14` under one or more items | their due date (only the items above it in the same group) |
+| `✓ landing page DONE`, `→ started`, `~ halfway` | done / in progress; a later meeting updates the existing to-do |
+| `Fix login` with `DUE Oct 20` and no name | a to-do with nobody assigned (it is never given to a nearby name) |
+| `DECISION:` / `BLOCKER:` with a line under it | a decision / a blocker |
+
+One empty line separates groups within a person's list; two empty lines or a heading end it.
+
+The same rules apply to photos. The vision model writes down what the photo says, marking the layout (which items sit under which name, ticks, arrows, crossed-out items), and that transcript is parsed exactly like typed notes. Tesseract OCR is used instead when it reads printed text better. The vision model also adds what only a picture shows (boxes, arrows, sticky-note columns, org-chart lines).
 
 ---
 
@@ -209,12 +225,17 @@ All in `.env` (see [.env.example](.env.example)):
 ## Testing
 
 ```bash
-npm test                 # 26 unit tests: the notes parser, name matching, validation, status history
+npm test                 # 47 unit tests: the notes parser, handwritten lists and ownership, name matching,
+                         # validation, status history, follow-up meetings, views (no model needed)
+npm run test:demo        # the demo's to-do list, including to-dos with no date, owner or status
 npm run test:eval        # 6 extraction cases: text, name matching, org chart, process flow, diagram + notes
 npm run test:scenario    # a 4-meeting, 2-photo project with 13 checks on the result
+npm run test:handwritten # two handwritten photos and two typed notes, first meeting then follow-up
 ```
 
-`test:eval` and `test:scenario` call the running server and the local model. Their inputs are in [tests/fixtures](tests/fixtures) and [tests/dataset](tests/dataset).
+`test:eval`, `test:scenario` and `test:handwritten` call the running server and the local model. Their inputs are in [tests/fixtures](tests/fixtures) and [tests/dataset](tests/dataset).
+
+**When a to-do comes out wrong**, look at the source's extraction trace: `GET /api/sources/<id>/trace` (also saved as `data/debug/<id>.json`; on by default in development, `ORGMAP_DEBUG=false` turns it off). It lists, in order, the OCR text, the model's raw reply and its validated form (including the vision transcript), what the notes parser read, the cleaned extraction, the merge report and the resulting to-dos. The first stage where the to-do is wrong is the stage to fix: vision (transcript misread), parser, cleanup, or merge. `npm run test:handwritten` prints these stages for each photo.
 
 ---
 
@@ -223,6 +244,7 @@ npm run test:scenario    # a 4-meeting, 2-photo project with 13 checks on the re
 ```
 demo/
   app.py              the demo page (Streamlit)
+  todos.py            the to-do table, tolerant of to-dos with missing fields (tests: test_todos.py)
   whiteboard.png      the sample photo for step 3 (source: whiteboard.html)
 server/
   index.ts            REST API, analysis queue
