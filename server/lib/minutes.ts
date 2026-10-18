@@ -21,6 +21,8 @@ export interface ParsedMinutes {
   covers: Set<NodeType>
   /** True when reporting lines were stated explicitly ("X reports to Y"). */
   hasReporting: boolean
+  /** Crossed-out items ("banner ads"): never to-dos, whichever reading or the model saw them. */
+  struck: string[]
 }
 
 const DATE = /\d{4}-\d{2}-\d{2}/
@@ -88,8 +90,27 @@ const ARROW = /\s*(?:-+>|=+>|[—–]+>|[→⟶➔➙➜➝➞⇒])\s*/g
 const tidy = (raw: string) => raw.replace(ARROW, ' → ')
 const DONE_MARK = /^(?:[✓✔☑✅]|\[[xX✓✔]\])\s*/
 const OPEN_MARK = /^(?:[☐□]|\[ \])\s*/
-/** Crossed-out text (the vision transcript writes it as ~~text~~): not part of the notes. */
-const STRUCK = /^~~.+~~$/
+/** Crossed-out text (the vision transcript writes it as ~~text~~, with or without a bullet): not part of the notes. */
+const STRUCK = /^(?:[-*•—–]\s*)?~~.+~~$/
+/**
+ * In a photo, the line through crossed-out text reads as a long dash glued to the first word: the vision
+ * model wrote "—banner ads" and tesseract "—bommer—s" for "- banner ads" struck through, while plain
+ * items read "- logo". Typed notes never get this rule: there a dash is just punctuation.
+ */
+const STRUCK_IN_PHOTO = /^[—–―](?=\p{L})/u
+const struckText = (line: string) => clean(line.replace(/~~/g, '').replace(/^[-*•—–―\s]+/, ''))
+
+/** A parse with its crossed-out items (from any reading of the same input) removed, nodes and edges. */
+export function dropStruck(p: ParsedMinutes, struck: string[]): ParsedMinutes {
+  const isStruck = (label: string) => struck.some((s) => normalize(s) === normalize(label) || similarity(s, label) >= 0.75)
+  const gone = new Set(p.nodes.filter((n) => n.type !== 'PERSON' && n.type !== 'TEAM' && isStruck(n.label)).map((n) => n.temporaryId))
+  return {
+    ...p,
+    nodes: p.nodes.filter((n) => !gone.has(n.temporaryId)),
+    edges: p.edges.filter((e) => !gone.has(e.sourceTemporaryId) && !gone.has(e.targetTemporaryId)),
+    struck: [...new Set([...p.struck, ...struck])],
+  }
+}
 const ISO_ONLY = new RegExp(`^(?:due|by)?\\s*[:\\-–]?\\s*(${DATE.source})[\\s.]*$`, 'i')
 const DUE_LINE = new RegExp(`^(?:due|by|deadline|until)\\s*[:\\-–]?\\s*(${DATE.source})[\\s.]*$`, 'i')
 const DUE_INLINE = new RegExp(`[(\\[,;]?\\s*\\b(?:due|deadline)\\s*[:\\-–]?\\s*(${DATE.source})\\s*[)\\],;]?`, 'i')
@@ -255,10 +276,15 @@ const blockerLabel = (s: string) => s
   .replace(/^(?:need(?:s|ed)?|waiting (?:on|for)|blocked (?:by|on)|no)\s+/i, '')
   .replace(/\s+(?:(?:is|are)\s+)?(?:still\s+)?(?:broken|not done|not working|down|failing|pending|missing|blocked|outstanding|not ready|unavailable)$/i, '') || s
 
-export function parseMinutes(text: string, ctx: { meetingDate?: string; knownEntities?: KnownEntity[] } = {}): ParsedMinutes {
+export function parseMinutes(
+  text: string,
+  /** `photo`: the text was read from an image (vision transcript or OCR), see STRUCK_IN_PHOTO. */
+  ctx: { meetingDate?: string; knownEntities?: KnownEntity[]; photo?: boolean } = {},
+): ParsedMinutes {
   const nodes: XNode[] = []
   const edges: XEdge[] = []
   const covers = new Set<NodeType>()
+  const struck: string[] = []
   let hasReporting = false
   let n = 0
 
@@ -399,7 +425,11 @@ export function parseMinutes(text: string, ctx: { meetingDate?: string; knownEnt
       continue
     }
     blanks = 0
-    if (STRUCK.test(line)) continue
+    if (STRUCK.test(line) || (ctx.photo && STRUCK_IN_PHOTO.test(line))) {
+      const what = struckText(line)
+      if (what) struck.push(what)
+      continue
+    }
 
     // A name heading ("Maya:", "## Maya", or a bare "Maya" the layout marks as one) starts that person's list.
     const head = nameHeading(line)
@@ -659,7 +689,7 @@ export function parseMinutes(text: string, ctx: { meetingDate?: string; knownEnt
       }
     }
   }
-  return { nodes, edges, covers, hasReporting }
+  return { nodes, edges, covers, hasReporting, struck }
 }
 
 /**
@@ -674,7 +704,9 @@ export function combineWithModel(model: Extraction, parsed: ParsedMinutes, sourc
     (n.type === 'DECISION' && !hasDecisionLanguage) ||
     parsed.nodes.some((p) => p.type === n.type && (normalize(p.label) === normalize(n.label) || similarity(p.label, n.label) >= 0.75)) ||
     // "Action item: Sarah Chen"-style junk labels
-    /^(action items?|decision|blocker|risk|milestone)\s*[:\-]/i.test(n.label)
+    /^(action items?|decision|blocker|risk|milestone)\s*[:\-]/i.test(n.label) ||
+    // The model also reads crossed-out items; the notes say they are cancelled.
+    (n.type !== 'PERSON' && n.type !== 'TEAM' && (parsed.struck ?? []).some((s) => normalize(s) === normalize(n.label) || similarity(s, n.label) >= 0.75))
   const keptModelNodes = model.nodes.filter((n) => !replaced(n))
   const idMap = new Map<string, string>()
   // Model nodes that duplicate a parsed node (any type) are folded into it.

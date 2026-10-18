@@ -12,7 +12,7 @@ import path from 'node:path'
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'orgmap-test-'))
 process.env.OLLAMA_BASE_URL = 'http://127.0.0.1:9'
 process.env.OCR_ENABLED = 'false'
-const { parseMinutes, combineWithModel } = await import('../server/lib/minutes.ts')
+const { parseMinutes, combineWithModel, dropStruck } = await import('../server/lib/minutes.ts')
 const { applyOwners, dropLeakedDates, sanitize } = await import('../server/lib/ai/provider.ts')
 const { mergeExtraction } = await import('../server/graph/reconcile.ts')
 const { buildViews } = await import('../server/views.ts')
@@ -301,4 +301,50 @@ test('6c. the two real meetings in sequence: kickoff then weekly sync', async ()
   assert.equal(byLabel('Wireframes')?.due, '2026-10-14', 'kickoff due dates survive into the to-do list')
   assert.equal(v.actionItems.filter((a) => a.owners.length === 0).map((a) => a.label).join(), 'Final QA before demo')
   for (const a of v.actionItems) assert.ok(a.label && Array.isArray(a.owners) && 'due' in a && a.status, `${a.label} has the full shape`)
+})
+
+
+// ---------------------------------------------------------------- crossed-out items
+
+test('7a. crossed-out items are never to-dos: ~~text~~, with or without a bullet', () => {
+  const expected = ['Landing page | Maya |  | OPEN', 'Logo | Maya |  | OPEN']
+  assert.deepEqual(tasks('Maya\n- landing page\n- ~~banner ads~~\n- logo'), expected, 'bulleted (what the vision prompt asks for)')
+  assert.deepEqual(tasks('Maya\n- landing page\n~~banner ads~~\n- logo'), expected, 'bare')
+  assert.deepEqual(parseMinutes('Maya\n- landing page\n- ~~banner ads~~').struck, ['banner ads'])
+})
+
+test('7b. in a photo, a long dash glued to the word is the strike line; typed notes keep their dashes', () => {
+  // What qwen2.5vl (transcript) and tesseract (OCR) actually produced for "- banner ads" struck through.
+  const transcript = 'Maya\n- landing page\n- logo\n—banner ads\nDUE Fri'
+  const photo = parseMinutes(transcript, { meetingDate: '2026-10-06', photo: true })
+  assert.deepEqual(photo.nodes.filter((n) => n.type === 'TASK').map((n) => n.label), ['Landing page', 'Logo'])
+  assert.deepEqual(photo.struck, ['banner ads'])
+  assert.deepEqual(parseMinutes('Maya\n- logo\n—bommer—s', { photo: true }).struck, ['bommer—s'], 'garbled OCR of the same line')
+  assert.deepEqual(parseMinutes('Maya\n— logo\n– landing page', { photo: true }).struck, [], 'a dash and a space is a bullet, not a strike')
+  assert.deepEqual(parseMinutes(transcript, { meetingDate: '2026-10-06' }).struck, [], 'typed notes: the rule is off')
+})
+
+test('7c. an item crossed out in one reading is dropped from the other reading and from the model', () => {
+  // OCR missed the strike-through and reads a plain item; the transcript marked it.
+  const ocr = parseMinutes('Maya\n- landing page\n- banner ads', { photo: true })
+  assert.ok(ocr.nodes.some((n) => n.label === 'Banner ads'), 'precondition: OCR alone keeps it')
+  const cleaned = dropStruck(ocr, ['banner ads'])
+  assert.deepEqual(cleaned.nodes.filter((n) => n.type === 'TASK').map((n) => n.label), ['Landing page'])
+  assert.ok(cleaned.edges.every((e) => cleaned.nodes.some((n) => n.temporaryId === e.targetTemporaryId)), 'its owner edge goes too')
+  assert.ok(cleaned.nodes.some((n) => n.label === 'Maya'), 'the person stays')
+
+  // The model read it as a task even though the notes parser found no other to-do to replace its tasks with.
+  const parsed = parseMinutes('- ~~banner ads~~', { photo: true })
+  const model: Extraction = {
+    summary: '', ambiguities: [],
+    nodes: [
+      { temporaryId: 'm', label: 'Maya', type: 'PERSON', confidence: 1 },
+      { temporaryId: 'b', label: 'Banner ads', type: 'TASK', confidence: 1 },
+      { temporaryId: 'w', label: 'Website', type: 'SYSTEM', confidence: 1 },
+    ],
+    edges: [{ sourceTemporaryId: 'm', targetTemporaryId: 'b', relationship: 'RESPONSIBLE_FOR', confidence: 1 }],
+  }
+  const x = combineWithModel(model, parsed)
+  assert.deepEqual(x.nodes.map((n) => n.label).sort(), ['Maya', 'Website'])
+  assert.deepEqual(x.edges, [], 'the edge to the dropped task goes too')
 })

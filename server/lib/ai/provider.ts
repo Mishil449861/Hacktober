@@ -9,7 +9,7 @@ import {
 } from '../../../src/shared/schema.ts'
 import { createRuntime } from './runtimes.ts'
 import { normalize, similarity } from '../../graph/text.ts'
-import { combineWithModel, normalizeDates, parseMinutes, type ParsedMinutes } from '../minutes.ts'
+import { combineWithModel, dropStruck, normalizeDates, parseMinutes, type ParsedMinutes } from '../minutes.ts'
 import { ocrImage } from './ocr.ts'
 
 export const runtime = createRuntime()
@@ -186,6 +186,9 @@ export function sanitize(input: Extraction, known: { label: string; type: string
       // "Maya → landing page" / "Maya → Design" read as a reporting line: people report only to people.
       if (rel === 'REPORTS_TO' && s === 'PERSON' && t === 'TASK') return { ...e, relationship: 'RESPONSIBLE_FOR' }
       if (rel === 'REPORTS_TO' && s === 'PERSON' && !OWNERS.has(t)) return { ...e, relationship: 'PART_OF' }
+      // Systems don't report to anything: "Frontend REPORTS_TO API Gateway" is the model mislabelling a
+      // diagram arrow (seen once in 4 eval runs). An arrow between two things is a dependency.
+      if (rel === 'REPORTS_TO' && !OWNERS.has(s) && !OWNERS.has(t)) return { ...e, relationship: 'DEPENDS_ON' }
       // Process step -> process step is sequence, not an API call.
       if (rel === 'CALLS' && STEP_TYPES.has(s) && STEP_TYPES.has(t)) return { ...e, relationship: 'PRECEDES' }
       // "X BLOCKS <blocker>" is backwards: the blocker blocks X.
@@ -333,6 +336,8 @@ export interface AnalysisContext {
   knownEntities?: { label: string; type: string; status?: string }[]
   /** When set, each stage appends what it produced (see Trace). */
   trace?: Trace
+  /** The text was read from a photo (OCR), so crossed-out lines look like "—text" (see parseMinutes). */
+  photo?: boolean
 }
 
 /**
@@ -385,7 +390,7 @@ Identify systems, components, teams, people, processes, dependencies, ownership,
 
 "transcript": first, write the text of the image line by line, top to bottom, exactly as written (do not fix, summarise or add anything). Mark the layout:
 - a name that heads a group of items: "Name:" on its own line; each item of that group on its own line starting with "- "
-- a drawn arrow: "→"; a ticked item: start it with "✓"; crossed-out (struck-through) text: leave it out
+- a drawn arrow: "→"; a ticked item: start it with "✓"; crossed-out (struck-through) text: keep the line but wrap the text in "~~", e.g. "- ~~banner ads~~"
 - an empty line between groups that are separate on the page; an item under no name goes after an empty line, never inside a name's group
 - a sticky note or card: "- <note text> (<name written on it>)" under its column heading ("TODO:", "DOING:", "DONE:")${ocrBlock}`,
       { images: [image.toString('base64')], vision: true }, ctx.trace)
@@ -394,7 +399,7 @@ Identify systems, components, teams, people, processes, dependencies, ownership,
       ctx.trace?.push({ stage: 'model.error (vision)', data: `${(e as Error).message}${(e as Error).cause ? ` (${String((e as Error).cause)})` : ''}` })
       if (!ocrText) throw e
       console.warn('[ai] vision extraction failed, falling back to OCR + text:', (e as Error).message)
-      const res = await analyzeText(ocrText, `Text OCR-extracted from a whiteboard / sprint board photo named "${name}".`, ctx)
+      const res = await analyzeText(ocrText, `Text OCR-extracted from a whiteboard / sprint board photo named "${name}".`, { ...ctx, photo: true })
       return { ...res, extraction: sanitize(addOcrAnnotations(res.extraction, ocrText), ctx.knownEntities), model: `tesseract + ${res.model} (vision failed)`, ocrText }
     }
     ctx.trace?.push({ stage: 'model.validated', data: extraction })
@@ -403,8 +408,14 @@ Identify systems, components, teams, people, processes, dependencies, ownership,
     // text (print), whichever reads better; the vision model adds what only a picture shows (boxes, arrows,
     // sticky-note columns).
     const transcript = extraction.transcript?.trim() ?? ''
-    const fromOcr = parseMinutes(ocrText, ctx)
-    const fromTranscript = transcript ? parseMinutes(transcript, ctx) : undefined
+    const photoCtx = { ...ctx, photo: true }
+    const ocrParse = parseMinutes(ocrText, photoCtx)
+    const transcriptParse = transcript ? parseMinutes(transcript, photoCtx) : undefined
+    // An item crossed out in either reading is crossed out: drop it from both before comparing them, so a
+    // reading that missed the strike-through doesn't win for having "more" to-dos.
+    const struck = [...(transcriptParse?.struck ?? []), ...ocrParse.struck]
+    const fromOcr = dropStruck(ocrParse, struck)
+    const fromTranscript = transcriptParse && dropStruck(transcriptParse, struck)
     const parsed = richer(fromTranscript, fromOcr)
     const notes = parsed === fromTranscript ? transcript : ocrText
     ctx.trace?.push({ stage: 'notes-parser', data: { input: parsed === fromTranscript ? 'transcript' : 'ocr', ...parsedSummary(parsed) } })

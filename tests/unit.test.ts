@@ -108,6 +108,27 @@ test('sanitize turns person MANAGES person into reversed REPORTS_TO', () => {
   assert.equal(x.edges[1].relationship, 'LEADS', 'person LEADS team is not a reporting line')
 })
 
+test('sanitize turns a system "reporting to" a system into a dependency; people and teams keep REPORTS_TO', () => {
+  const x = sanitize({
+    summary: '', ambiguities: [],
+    nodes: [
+      { temporaryId: 'fe', label: 'Frontend', type: 'SYSTEM', confidence: 1 },
+      { temporaryId: 'gw', label: 'API Gateway', type: 'COMPONENT', confidence: 1 },
+      { temporaryId: 'r', label: 'Raj Patel', type: 'PERSON', confidence: 1 },
+      { temporaryId: 's', label: 'Sarah Chen', type: 'PERSON', confidence: 1 },
+      { temporaryId: 'a', label: 'Payments Team', type: 'TEAM', confidence: 1 },
+      { temporaryId: 'b', label: 'Platform Org', type: 'TEAM', confidence: 1 },
+    ],
+    edges: [
+      { sourceTemporaryId: 'fe', targetTemporaryId: 'gw', relationship: 'REPORTS_TO', confidence: 1 },
+      { sourceTemporaryId: 'r', targetTemporaryId: 's', relationship: 'REPORTS_TO', confidence: 1 },
+      { sourceTemporaryId: 'a', targetTemporaryId: 'b', relationship: 'REPORTS_TO', confidence: 1 },
+    ],
+  })
+  assert.deepEqual(x.edges.map((e) => `${e.sourceTemporaryId} ${e.relationship} ${e.targetTemporaryId}`),
+    ['fe DEPENDS_ON gw', 'r REPORTS_TO s', 'a REPORTS_TO b'])
+})
+
 test('sanitize reverses ownership that points from a system to a team, keeps team->team', () => {
   const x = sanitize({
     summary: '', ambiguities: [],

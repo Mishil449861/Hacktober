@@ -12,13 +12,13 @@ Type what was said in a meeting, or photograph the whiteboard. OrgMap AI works o
 
 ## The demo
 
-One screen, about 15 to 20 seconds per step. After [setup](#setup):
+One screen. Typed notes take about 15 to 25 seconds per step, the photo about 40 to 60 seconds (the model first writes out everything on the page). After [setup](#setup):
 
 ```powershell
 .\start-demo.ps1
 ```
 
-Open **http://localhost:8501**.
+The browser opens **http://localhost:8501** by itself; if it doesn't, open that address.
 
 | Step | You do | You see |
 |---|---|---|
@@ -27,7 +27,9 @@ Open **http://localhost:8501**.
 | 3 | A whiteboard photo is shown. Press **Read the photo** (or use your own photo or the laptop camera). | Two more to-dos, another one ticked off, and a panel showing exactly what Cloudinary did with the photo. |
 | 4 | Type your own line, for example `Sam will write the agenda by Friday.` | It joins the list. |
 
-**Start over** resets it for the next person. Dates in the prepared notes are computed from today, and the whiteboard says "by Friday", so nothing ever looks stale.
+**Start over** resets it for the next person. Dates in the prepared notes are computed from today, and the whiteboard says "by Friday", so nothing ever looks stale. From step 2 on, what the latest input added is shown in green and what it changed in orange.
+
+The page runs in presentation mode ([.streamlit/config.toml](.streamlit/config.toml)): no Deploy button, developer menu or Streamlit pop-ups.
 
 ---
 
@@ -46,7 +48,7 @@ Typed notes never leave the laptop. **Every photo goes through Cloudinary**, and
 Ways to verify it yourself:
 
 - **On screen:** the "What Cloudinary did with the photo" panel shows all three images served from `res.cloudinary.com`, the URL above, the asset's public ID, size and upload time.
-- **In your Cloudinary console:** Media Library → folder `orgmap/<project id>` contains the uploaded photo while the demo project exists (**Start over** deletes it again).
+- **In your Cloudinary console:** Media Library → folder `orgmap/<project id>` contains the uploaded photo, named "OrgMap <file name>" (search for "OrgMap"), while the demo project exists. **Start over** deletes the photo and its folder again.
 - **In the code:** [server/cloudinary.ts](server/cloudinary.ts) (upload and the three transformations), [server/inbox.ts](server/inbox.ts) and [server/capture.ts](server/capture.ts).
 - **Turn it off:** remove the Cloudinary keys from `.env` and the panel says the photo was stored on the laptop instead.
 
@@ -108,6 +110,10 @@ One command (Windows):
 .\start-demo.ps1
 ```
 
+It checks that Ollama is running, installs anything missing on first run, starts the server in a **minimized window titled "OrgMap server - keep this window open"**, then starts the demo page and opens the browser. If the server is already running, it reuses it.
+
+To stop: press **Ctrl+C** in the launcher's window (stops the demo page), then close the minimized "OrgMap server" window (stops the server). Closing that window while presenting stops the demo from working.
+
 Or two terminals, both in the project folder:
 
 ```powershell
@@ -119,7 +125,7 @@ npm run dev
 npm run demo
 ```
 
-Then open **http://localhost:8501**. Ollama must be running (it starts with Windows by default; otherwise launch the Ollama app or run `ollama serve`).
+Then open **http://localhost:8501** (in presentation mode the browser doesn't open by itself). Ollama must be running (it starts with Windows by default; otherwise launch the Ollama app or run `ollama serve`).
 
 | Command | What it does |
 |---|---|
@@ -162,10 +168,13 @@ Quick handwritten-style lists work the same way (examples in [tests/fixtures/han
 | `✓ landing page DONE`, `→ started`, `~ halfway` | done / in progress; a later meeting updates the existing to-do |
 | `Fix login` with `DUE Oct 20` and no name | a to-do with nobody assigned (it is never given to a nearby name) |
 | `DECISION:` / `BLOCKER:` with a line under it | a decision / a blocker |
+| `- ~~banner ads~~`, or an item crossed out in a photo | nothing: crossed-out items are cancelled, never to-dos |
 
 One empty line separates groups within a person's list; two empty lines or a heading end it.
 
-The same rules apply to photos. The vision model writes down what the photo says, marking the layout (which items sit under which name, ticks, arrows, crossed-out items), and that transcript is parsed exactly like typed notes. Tesseract OCR is used instead when it reads printed text better. The vision model also adds what only a picture shows (boxes, arrows, sticky-note columns, org-chart lines).
+The same rules apply to photos. The vision model writes down what the photo says, marking the layout (which items sit under which name, ticks, arrows), and that transcript is parsed exactly like typed notes. Tesseract OCR is used instead when it reads printed text better. The vision model also adds what only a picture shows (boxes, arrows, sticky-note columns, org-chart lines).
+
+Crossed-out items in a photo: the model is asked to mark them as `~~text~~`, but in practice `qwen2.5vl` writes the strike line as a long dash glued to the word (`—banner ads`), and tesseract does the same. In text read from a photo, either form is treated as crossed out, and the item is removed from both readings and from the model's own list. Typed notes keep their dashes; only `~~text~~` counts there.
 
 ---
 
@@ -180,7 +189,8 @@ The same rules apply to photos. The vision model writes down what the photo says
                                           JSON, schema-validated, one repair retry
                                                             │
                                                             ▼
-                     cleanup: fix relationship directions, drop invented dates and owners
+                     cleanup: fix relationship directions and types, drop invented dates and owners,
+                     drop crossed-out items
                                                             │
                                                             ▼
                      merge into the existing graph: match names ("Auth API" = "Authentication API"),
@@ -217,23 +227,42 @@ All in `.env` (see [.env.example](.env.example)):
 | `OLLAMA_SINGLE_MODEL` | `true` | `false` = separate, slower text model |
 | `OLLAMA_UNLOAD_ON_SWITCH` | `true` | keep one model in memory (needed on 16 GB RAM) |
 | `LOCAL_AI_BASE_URL` / `LOCAL_AI_MODEL` | | for `lmstudio` |
+| `LOCAL_AI_TIMEOUT_MS` | `600000` | how long one model call may take |
 | `OCR_ENABLED` | `true` | |
+| `ORGMAP_DEBUG` | blank | extraction traces (`data/debug/`, see [Testing](#testing)); blank = on in development, `false` = off |
 | `PORT` | `8787` | |
+| `DATA_DIR` | `data` | where projects are stored (`data/db.json`) |
+| `CLOUDINARY_DISABLED` | | `true` = ignore the Cloudinary keys and store photos locally |
 
 ---
 
 ## Testing
 
 ```bash
-npm test                 # 47 unit tests: the notes parser, handwritten lists and ownership, name matching,
-                         # validation, status history, follow-up meetings, views (no model needed)
-npm run test:demo        # the demo's to-do list, including to-dos with no date, owner or status
+npm test                 # 54 unit tests: the notes parser, handwritten lists and ownership, crossed-out items,
+                         # name matching, validation, relationship fixes, status history, views (no model needed)
+npm run test:demo        # 18 tests of the demo's to-do list, including to-dos with no date, owner or status
 npm run test:eval        # 6 extraction cases: text, name matching, org chart, process flow, diagram + notes
 npm run test:scenario    # a 4-meeting, 2-photo project with 13 checks on the result
 npm run test:handwritten # two handwritten photos and two typed notes, first meeting then follow-up
 ```
 
-`test:eval`, `test:scenario` and `test:handwritten` call the running server and the local model. Their inputs are in [tests/fixtures](tests/fixtures) and [tests/dataset](tests/dataset).
+`test:eval`, `test:scenario` and `test:handwritten` call the running server and the local model. Their inputs are in [tests/fixtures](tests/fixtures) and [tests/dataset](tests/dataset). Together they take about 10 minutes on an 8 GB GPU. The model's answers vary a little from run to run, so rerun a single failure before treating it as a bug.
+
+They create projects (and upload photos to Cloudinary). To keep them away from your real projects and the demo, run them against a second server with its own data folder:
+
+```powershell
+# Terminal 1: a test server on port 8788 with its own data (data-eval/, git-ignored)
+$env:PORT='8788'; $env:DATA_DIR='data-eval'; npx tsx server/index.ts
+
+# Terminal 2
+$env:ORGMAP_API='http://localhost:8788'
+npm run test:eval; npm run test:scenario; npm run test:handwritten
+```
+
+Add `$env:CLOUDINARY_DISABLED='true'` in terminal 1 to keep test photos out of Cloudinary. Run one test server at a time: two servers analyzing at once can exhaust 16 GB of RAM.
+
+Last full run (Oct 18, 2026, `qwen2.5vl:7b`): unit 54/54, demo 18/18, eval 6/6 (node and edge recall 100%), scenario 13/13, handwritten photos 36/36 (3 runs in a row) and typed 41/41.
 
 **When a to-do comes out wrong**, look at the source's extraction trace: `GET /api/sources/<id>/trace` (also saved as `data/debug/<id>.json`; on by default in development, `ORGMAP_DEBUG=false` turns it off). It lists, in order, the OCR text, the model's raw reply and its validated form (including the vision transcript), what the notes parser read, the cleaned extraction, the merge report and the resulting to-dos. The first stage where the to-do is wrong is the stage to fix: vision (transcript misread), parser, cleanup, or merge. `npm run test:handwritten` prints these stages for each photo.
 
@@ -242,6 +271,8 @@ npm run test:handwritten # two handwritten photos and two typed notes, first mee
 ## Project structure
 
 ```
+.streamlit/
+  config.toml         presentation mode for the demo page
 demo/
   app.py              the demo page (Streamlit)
   todos.py            the to-do table, tolerant of to-dos with missing fields (tests: test_todos.py)
@@ -271,12 +302,14 @@ The graph editor at `http://localhost:5173` shows the full map behind the to-do 
 
 | Symptom | Fix |
 |---|---|
-| "The OrgMap server isn't running" | Run `npm run dev` in another terminal. |
+| "The OrgMap server isn't running" | The "OrgMap server" window was closed: run `.\start-demo.ps1` again (it only restarts what's missing). Without the launcher, run `npm run dev` in another terminal. |
+| The browser didn't open | Open http://localhost:8501 yourself. |
 | "The local AI model isn't running" | Start the Ollama app, or run `ollama serve`. |
 | `No local vision model found` | `ollama pull qwen2.5vl:7b` |
 | The Cloudinary panel says the photo was stored on the laptop | The three `CLOUDINARY_…` values are missing from `.env`. Add them and restart `npm run dev`. |
 | `api_secret mismatch` from Cloudinary | Re-copy the secret with the console's copy button: `I` and `l` look identical in its font. |
 | A step takes minutes | The model is running on CPU. Check `ollama ps`. |
+| A to-do is wrong or missing | Read its extraction trace (see [Testing](#testing)) to find the stage that got it wrong. |
 | Node crashes with *out of memory* | Close other heavy apps and keep `OLLAMA_UNLOAD_ON_SWITCH=true`. |
 | "Disk is full: changes are not being saved" | Free up disk space; the server keeps running in the meantime. |
 | Phone can't open the capture page | Same Wi-Fi? Allow Node through the firewall, and use the IP the server prints, not `localhost`. |
@@ -286,6 +319,7 @@ The graph editor at `http://localhost:5173` shows the full map behind the to-do 
 ## Limitations
 
 - Handwriting depends on the photo. Clear block letters work; cursive or a blurry photo may not.
+- Crossed-out items in photos are recognized by how the model writes the strike line (see above). A messier photo or a different model may write it differently and let the item through.
 - Free-form sentences outside the patterns above are read by the model and can be misread. Check the result.
 - Arrow directions in dense diagrams are occasionally wrong.
 - Storage is one JSON file, and there is no login. Run it on a trusted network.

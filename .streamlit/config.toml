@@ -1,0 +1,13 @@
+# Streamlit settings for the demo page (picked up by `npm run demo` and start-demo.ps1).
+
+[server]
+# Presentation mode: no developer pop-ups ("Help agents write better apps"). Streamlit then doesn't
+# open the browser by itself; start-demo.ps1 opens it, or go to http://localhost:8501.
+headless = true
+
+[client]
+# Hide the Deploy button and developer menu: the audience sees only the demo.
+toolbarMode = "minimal"
+
+[browser]
+gatherUsageStats = false
