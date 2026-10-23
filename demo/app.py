@@ -1,9 +1,12 @@
 """
-OrgMap AI demo: one screen.
+OrgMap AI demo: one screen, one board per visitor.
 
 Plain meeting notes go in; a to-do list (who, what, by when), the decisions and who reports to whom
-come out. A second note updates it, then a whiteboard photo does: the photo is stored and transformed
-by Cloudinary, and the page shows exactly what Cloudinary did with it.
+come out. Later notes and whiteboard photos update it, and the to-do list can be edited directly.
+Photos are stored and transformed by Cloudinary, and the page shows exactly what Cloudinary did.
+
+Each visitor gets their own board, reached by a private link (?board=<id>). The page never lists
+boards, so nobody can browse anyone else's; the board id in the link is the key.
 
     npm run dev     # terminal 1: API + local model
     npm run demo    # terminal 2: this page (http://localhost:8501)
@@ -11,23 +14,23 @@ by Cloudinary, and the page shows exactly what Cloudinary did with it.
 from __future__ import annotations
 
 import datetime as dt
-import os
+import secrets
 import time
 from pathlib import Path
 
-import requests
+import pandas as pd
 import streamlit as st
 
-from todos import NEW_COLOR, CHANGED_COLOR, changes_by_item, friendly, short, todo_table
+from client import api, apply_edits
+from todos import (CHANGED_COLOR, NEW_COLOR, changes_by_item, editor_rows, friendly, md_text, plan_edits, short,
+                   todo_table)
 
-API = os.environ.get("ORGMAP_API", "http://localhost:8787")
-PROJECT = "Demo"
 WHITEBOARD = Path(__file__).parent / "whiteboard.png"
 
 today = dt.date.today()
 
 
-# The two prepared notes. Dates are computed from today so the story always reads as current.
+# The two prepared notes of the example. Dates are computed from today so the story always reads as current.
 FIRST_DAY = today - dt.timedelta(days=3)
 NOTE_1 = f"""Maya is planning the team offsite. Ben reports to Maya.
 - Ben: book the venue by {short(today + dt.timedelta(days=2))}
@@ -39,27 +42,31 @@ Chloe joins the team and reports to Maya.
 - Decision: lunch will be catered."""
 
 
-def api(method: str, path: str, **kw):
-    r = requests.request(method, API + path, timeout=60, **kw)
-    if not r.ok:
-        raise RuntimeError(f"{r.status_code}: {r.text[:300]}")
-    return r.json()
+def open_board(board_id: str, example: bool) -> None:
+    st.query_params.from_dict({"board": board_id, **({"example": "1"} if example else {})})
+    st.session_state.pop("edit_version", None)
+    st.rerun()
 
 
-def project_id() -> str:
-    for w in api("GET", "/api/workspaces"):
-        if w["name"] == PROJECT:
-            return w["id"]
-    return api("POST", "/api/workspaces", json={"name": PROJECT})["id"]
+def create_board(name: str, example: bool) -> None:
+    # A short random suffix keeps boards with the same name apart (e.g. in Cloudinary's inbox folders).
+    ws = api("POST", "/api/workspaces", json={"name": f"{name.strip() or 'My board'} · {secrets.token_hex(2)}"})
+    open_board(ws["id"], example)
 
 
-def read(ws_id: str, date: dt.date, text: str = "", photo: tuple[str, bytes] | None = None):
+def board_link(board_id: str, example: bool) -> str:
+    base = (getattr(st.context, "url", "") or "").split("?")[0]
+    return f"{base}?board={board_id}" + ("&example=1" if example else "")
+
+
+def read(ws_id: str, date: dt.date, text: str = "", photo: tuple | None = None):
     stamp = time.strftime("%H:%M:%S")
     if text.strip():
         api("POST", f"/api/workspaces/{ws_id}/sources", data={"text": text, "name": f"Notes {stamp}", "date": date.isoformat()})
     if photo:
         api("POST", f"/api/workspaces/{ws_id}/sources", data={"date": date.isoformat()}, files={"files": photo})
-    with st.spinner("Reading on this laptop… (usually 15 to 40 seconds)"):
+    with st.spinner("Reading on this laptop… usually 15 to 40 seconds, about a minute for a photo. "
+                    "If other people are adding notes at the same time, yours waits its turn."):
         while True:
             time.sleep(1.5)
             s = api("GET", f"/api/workspaces/{ws_id}")
@@ -68,9 +75,9 @@ def read(ws_id: str, date: dt.date, text: str = "", photo: tuple[str, bytes] | N
 
 
 def own_photo(key: str) -> tuple[str, bytes] | None:
-    """Upload or laptop camera. Returns (filename, bytes)."""
+    """Upload or camera. Returns (filename, bytes)."""
     up = st.file_uploader("Photo", type=["png", "jpg", "jpeg", "webp"], label_visibility="collapsed", key=f"up-{key}")
-    shot = st.camera_input("Take a photo", key=f"cam-{key}") if st.toggle("Use this laptop's camera", key=f"camtoggle-{key}") else None
+    shot = st.camera_input("Take a photo", key=f"cam-{key}") if st.toggle("Use the camera", key=f"camtoggle-{key}") else None
     if up:
         return (up.name, up.getvalue())
     if shot:
@@ -90,27 +97,68 @@ if not status["reachable"]:
     st.error("The local AI model isn't running. Start the Ollama app, then refresh this page.")
     st.stop()
 
-ws_id = project_id()
+st.title("Meeting notes in. To-do list out.")
+
+board_id = st.query_params.get("board")
+example = st.query_params.get("example") == "1"
+
+# ---- start screen: no board yet
+if not board_id:
+    st.caption("Type what was said in a meeting, or photograph the whiteboard. OrgMap AI works out who does what by "
+               "when and keeps it up to date. The AI runs on one laptop; photos are stored and prepared by Cloudinary.")
+    st.markdown(
+        "**How it works**\n\n"
+        "1. Write down what was said in a meeting, or add a photo of the whiteboard.\n"
+        "2. The AI turns it into a to-do list: who does what, by when. Plus decisions and who reports to whom.\n"
+        "3. Add more notes later and the list updates itself. You can also edit it yourself.")
+    st.info("You get **your own board** with a private link. Nobody else can see or change it unless you share that link.")
+    name = st.text_input("Name your board (optional)", placeholder="e.g. Team offsite", max_chars=60)
+    c1, c2 = st.columns(2)
+    if c1.button("Start with an example", type="primary", width="stretch",
+                 help="A guided tour: two prepared notes and a whiteboard photo, then your own."):
+        create_board(name or "Example board", True)
+    if c2.button("Start with a blank board", width="stretch", help="Straight to your own notes."):
+        create_board(name or "My board", False)
+    st.stop()
+
+# ---- a board
+try:
+    state = api("GET", f"/api/workspaces/{board_id}")
+except RuntimeError:
+    st.warning("This board doesn't exist any more. It may have been deleted.")
+    if st.button("Make a new board", type="primary"):
+        st.query_params.clear()
+        st.rerun()
+    st.stop()
+
+ws_id = board_id
 views = api("GET", f"/api/workspaces/{ws_id}/views")
-sources = api("GET", f"/api/workspaces/{ws_id}")["sources"]
+sources = state["sources"]
 done = [c for c in views["changes"] if c["status"] == "DONE"]
 failed = [c for c in views["changes"] if c["status"] == "ERROR"]
-stage = len(views["changes"])  # 0 nothing read yet, 1 first note read, 2 updated, 3+ photo read
+stage = len(views["changes"])  # sources read so far; drives the example's steps
+items = views.get("actionItems") or []
+guided = example and stage < 3
 
-st.title("Meeting notes in. To-do list out.")
-st.caption("Type what was said in a meeting, or photograph the whiteboard. OrgMap AI works out who does what by "
-           "when and keeps it up to date. The AI runs on this laptop; photos are stored and prepared by Cloudinary.")
+with st.container(border=True):
+    st.markdown(f"**Your board: {md_text(state['workspace']['name'])}**")
+    st.caption("Only people with this link can see and edit this board. Bookmark it, or copy it to come back later "
+               "or to share the board with your team:")
+    st.code(board_link(board_id, example), language=None, wrap_lines=True)
+
+if flash := st.session_state.pop("flash", None):
+    st.success(flash)
 
 # ---- results
-if stage:
+if stage or items:
     latest = done[-1] if done else None
     if stage >= 2 and latest and (latest["statusChanges"] or latest["created"] or latest["dateChanges"]):
-        lines = [f"**{c['label']}** is now {c['to'].replace('_', ' ').lower()}" for c in latest["statusChanges"]]
-        lines += [f"**{c['label']}** moved to {friendly(c['to'])}" for c in latest["dateChanges"]]
-        new = [c["label"] for c in latest["created"] if c["type"] in ("TASK", "DECISION", "PERSON", "BLOCKER")]
+        lines = [f"**{md_text(c['label'])}** is now {c['to'].replace('_', ' ').lower()}" for c in latest["statusChanges"]]
+        lines += [f"**{md_text(c['label'])}** moved to {friendly(c['to'])}" for c in latest["dateChanges"]]
+        new = [md_text(c["label"]) for c in latest["created"] if c["type"] in ("TASK", "DECISION", "PERSON", "BLOCKER")]
         if new:
             lines.append("New: " + ", ".join(new))
-        what = "the photo" if latest["type"] == "IMAGE" else "the update"
+        what = "the photo" if latest["type"] == "IMAGE" else "the latest notes"
         st.success(f"**What {what} changed**\n\n" + "\n\n".join(lines))
 
     # From the second input on, mark what the latest one added (green) and changed (orange). On the first
@@ -118,35 +166,65 @@ if stage:
     change = latest if stage >= 2 else None
     marks = changes_by_item(change)
     st.subheader("To-do list")
-    table, unreadable = todo_table(views.get("actionItems") or [], change)
+    table, unreadable = todo_table(items, change)
     if table:
         st.markdown(table)
         if marks:
-            st.caption(f":{NEW_COLOR}[■ added] and :{CHANGED_COLOR}[■ changed] by the latest update")
+            st.caption(f":{NEW_COLOR}[■ added] and :{CHANGED_COLOR}[■ changed] by the latest notes")
     else:
         st.caption("No to-dos found yet.")
     if unreadable:
         st.caption(f"{unreadable} to-do(s) had no text and aren't shown.")
 
+# ---- edit the to-do list directly (also the way to start a list without notes)
+with st.expander("Edit the to-do list: tick off, rename, reassign, change dates, add or delete",
+                 expanded=not guided and not stage and not items):
+    version = st.session_state.get("edit_version", 0)
+    frame = pd.DataFrame(editor_rows(items), columns=["id", "done", "todo", "who", "due"])
+    edited = st.data_editor(
+        frame, key=f"edit-{board_id}-{version}", num_rows="dynamic", hide_index=True, width="stretch",
+        column_order=["done", "todo", "who", "due"],
+        column_config={
+            "done": st.column_config.CheckboxColumn("Done", width="small", default=False),
+            "todo": st.column_config.TextColumn("To-do", width="large", max_chars=120),
+            "who": st.column_config.TextColumn("Who", help="One name, or several separated by commas"),
+            "due": st.column_config.DateColumn("By when", format="ddd, MMM D"),
+        },
+    )
+    st.caption("Click a cell to change it. Add a to-do in the empty row at the bottom. To delete, select rows on the "
+               "left and press the bin icon. Dates can be changed but not removed. Then press **Save changes**.")
+    if st.button("Save changes", type="primary"):
+        ops = plan_edits(items, edited.to_dict("records"))
+        if ops:
+            apply_edits(ws_id, ops)
+            st.session_state["edit_version"] = version + 1
+            st.session_state["flash"] = f"Saved {len(ops)} change{'s' if len(ops) != 1 else ''} to the to-do list."
+            st.rerun()
+        else:
+            st.info("Nothing to save: the table is unchanged.")
+
+if stage or items:
     left, right = st.columns(2)
+    marks = changes_by_item(done[-1] if stage >= 2 and done else None)
     with left:
         st.subheader("Decisions")
         if views["decisions"]:
             for d in reversed(views["decisions"]):
+                label = md_text(d["label"])
                 if (marks.get(d.get("id")) or marks.get(d["label"].lower()) or {}).get("new"):
-                    st.markdown(f"- :{NEW_COLOR}[{d['label']}] :{NEW_COLOR}-badge[New]")
+                    st.markdown(f"- :{NEW_COLOR}[{label}] :{NEW_COLOR}-badge[New]")
                 else:
-                    st.markdown(f"- {d['label']}")
+                    st.markdown(f"- {label}")
         else:
             st.caption("None yet.")
         open_blockers = [b for b in views["blockers"] if b["status"] == "OPEN"]
         if open_blockers:
             st.subheader("Blockers")
             for b in open_blockers:
-                label = f"**{b['label']}**"
+                label = f"**{md_text(b['label'])}**"
                 if (marks.get(b.get("id")) or marks.get(b["label"].lower()) or {}).get("new"):
                     label = f":{NEW_COLOR}[{label}] :{NEW_COLOR}-badge[New]"
-                st.markdown(f"- {label}" + (f" (blocks {', '.join(b['blocks'])})" if b["blocks"] else ""))
+                st.markdown(f"- {label}" + (f" (blocks {md_text(', '.join(b['blocks']))})" if b["blocks"] else ""))
     with right:
         st.subheader("Who's who")
         people = {n["id"]: n["label"] for n in views["orgChart"]["nodes"] if n["type"] == "PERSON"}
@@ -155,16 +233,16 @@ if stage:
         if reports:
             dot = ['digraph G { rankdir=BT; bgcolor="transparent"; node [shape=box style="rounded,filled" fillcolor=white '
                    'color="#2a78d6" penwidth=2 fontname=Helvetica fontsize=12]; edge [color="#898781" arrowsize=0.7];']
-            # People the latest update introduced get a green box.
+            # People the latest notes introduced get a green box.
             new_style = ' fillcolor="#e6f4ea" color="#1e8e3e"'
-            dot += [f'"{i}" [label="{name}"{new_style if (marks.get(i) or {}).get("new") else ""}];'
+            dot += [f'"{i}" [label="{name.replace(chr(34), "")}"{new_style if (marks.get(i) or {}).get("new") else ""}];'
                     for i, name in people.items() if any(i in r for r in reports)]
             dot += [f'"{a}" -> "{b}";' for a, b in reports]
             dot.append("}")
             st.graphviz_chart("\n".join(dot))
             st.caption("Arrows point to the person someone reports to.")
         elif people:
-            st.markdown(", ".join(people.values()))
+            st.markdown(md_text(", ".join(people.values())))
         else:
             st.caption("Nobody mentioned yet.")
 
@@ -180,22 +258,22 @@ if stage:
             a.image(cld["secureUrl"], caption="1. Stored: the original, untouched")
             b.image(p.get("analysisUrl") or p["previewUrl"], caption="2. Prepared for the AI: resized, contrast improved, sharpened")
             c.image(p["thumbUrl"], caption="3. Thumbnail: smart-cropped")
-            st.caption("The AI on this laptop read copy 2. Cloudinary made it on the fly; the instructions are in the address:")
+            st.caption("The AI read copy 2. Cloudinary made it on the fly; the instructions are in the address:")
             st.code(clean(p.get("analysisUrl")), language=None, wrap_lines=True)
             st.caption(
                 f"Cloud **{status.get('cloudName')}** · asset `{cld['publicId']}` · {cld['width']}×{cld['height']} {cld['format'].upper()} · "
-                f"uploaded {cld['createdAt'][:16].replace('T', ' ')} UTC by a signed request from this laptop's server "
+                f"uploaded {cld['createdAt'][:16].replace('T', ' ')} UTC by a signed request from the OrgMap server "
                 f"(the API secret never reaches the browser). [Open the original]({cld['secureUrl']})")
         else:
             st.info("This photo was stored on the laptop, because Cloudinary isn't configured. Add the three "
                     "`CLOUDINARY_…` values to `.env` and restart `npm run dev` to store and prepare photos with Cloudinary.")
 
-    if failed:
-        st.warning("One of the inputs couldn't be read. Press **Start over** below and try again.")
-    st.divider()
+if failed:
+    st.warning("One of the inputs couldn't be read. Try adding it again, or type the to-dos into the table above.")
+st.divider()
 
-# ---- input for the current step
-if stage == 0:
+# ---- input: the example's guided steps, or free notes
+if guided and stage == 0:
     st.subheader("1. Here are some notes from a meeting")
     text = st.text_area("Notes", NOTE_1, height=150, key="notes-0", label_visibility="collapsed")
     st.caption("Change anything you like, or just press the button.")
@@ -203,7 +281,7 @@ if stage == 0:
         read(ws_id, FIRST_DAY, text)
         st.rerun()
 
-elif stage == 1:
+elif guided and stage == 1:
     st.subheader("2. A few days later, there's an update")
     text = st.text_area("Notes", NOTE_2, height=150, key="notes-1", label_visibility="collapsed")
     st.caption("Watch the to-do list above: Ben's task gets ticked off and Chloe's is added.")
@@ -211,34 +289,43 @@ elif stage == 1:
         read(ws_id, today, text)
         st.rerun()
 
-elif stage == 2:
+elif guided and stage == 2:
     st.subheader("3. Then someone photographs the whiteboard")
     st.image(str(WHITEBOARD), width=460)
     st.caption("The photo is uploaded to Cloudinary, which prepares a cleaned-up copy for the AI to read.")
     mine = None
     with st.expander("Use my own photo instead (handwritten notes, a whiteboard, sticky notes)"):
         mine = own_photo("step3")
-        inbox = status.get("inbox") or {}
-        if inbox.get("enabled"):
-            st.caption(f"From a phone on the same Wi-Fi: {inbox['captureUrls'][0]} (uploads straight to Cloudinary)")
     if st.button("Read my photo" if mine else "Read the photo", type="primary"):
         read(ws_id, today, photo=mine or ("whiteboard.png", WHITEBOARD.read_bytes(), "image/png"))
         st.rerun()
 
 else:
-    st.subheader("4. Now try your own")
-    hint = "For example:  Sam will write the agenda by Friday.   or   Chloe has ordered the catering. Done."
-    text = st.text_area("Notes", "", height=120, key=f"notes-{stage}", label_visibility="collapsed", placeholder=hint)
-    with st.expander("Or add a photo"):
+    if example:
+        st.subheader("4. Now try your own")
+    else:
+        st.subheader("Add more notes" if stage else "Add your first notes")
+    hint = ("For example:\n- Sam: write the agenda by Friday\n- Maya: book the room by Oct 30\n"
+            "Decision: we meet every Monday.\nChloe has ordered the catering. Done.")
+    text = st.text_area("Notes", "", height=140, key=f"notes-{stage}", label_visibility="collapsed", placeholder=hint)
+    st.caption("Write it the way you would in a meeting: who, what, by when. Later notes like \"… Done.\" tick things off.")
+    with st.expander("Or add a photo (handwritten notes, a whiteboard, sticky notes)"):
         mine = own_photo(f"free-{stage}")
     if st.button("Add", type="primary", disabled=not (text.strip() or mine)):
         read(ws_id, today, text, mine)
         st.rerun()
 
 st.divider()
-c1, c2 = st.columns([1, 3])
-if c1.button("Start over"):
-    api("DELETE", f"/api/workspaces/{ws_id}")
+c1, c2, c3 = st.columns([1, 1, 2])
+if c1.button("New board", help="Start another board. This one stays at its link."):
+    st.query_params.clear()
+    st.session_state.pop("edit_version", None)
     st.rerun()
-images = f"Cloudinary ({status.get('cloudName')})" if status["cloudinary"] else "this laptop (Cloudinary not configured)"
-c2.caption(f"AI: {status.get('visionModel') or status.get('textModel')}, running locally. Photos: {images}.")
+with c2.popover("Delete this board"):
+    st.markdown("This deletes the board, its notes and its photos for good. The link stops working.")
+    if st.button("Yes, delete it", type="primary"):
+        api("DELETE", f"/api/workspaces/{ws_id}")
+        st.query_params.clear()
+        st.rerun()
+images = f"Cloudinary ({status.get('cloudName')})" if status["cloudinary"] else "local storage (Cloudinary not configured)"
+c3.caption(f"AI: {status.get('visionModel') or status.get('textModel')}, running locally. Photos: {images}.")

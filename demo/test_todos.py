@@ -13,7 +13,10 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from todos import action_item, friendly, todo_table
+import datetime as dt
+import math
+
+from todos import action_item, editor_rows, friendly, plan_edits, split_owners, todo_table
 
 COMPLETE = {"id": "a", "label": "Book the venue", "description": "Seats 30", "owners": ["Ben"],
             "due": "2026-10-12", "status": "OPEN", "overdue": False}
@@ -129,37 +132,132 @@ class Dates(unittest.TestCase):
         self.assertEqual(friendly("2026-13-40"), "2026-13-40", "an impossible date is shown as written")
 
 
+class Editing(unittest.TestCase):
+    """The editable table: what typing into it turns into (plan_edits), without a server."""
+
+    ITEMS = [COMPLETE, NO_DUE, {**DONE_ITEM, "owners": []}]
+
+    def rows(self):
+        return [dict(r) for r in editor_rows(self.ITEMS)]
+
+    def test_rows_show_the_list(self):
+        self.assertEqual(editor_rows([COMPLETE, BARE, {"label": ""}]), [
+            {"id": "a", "done": False, "todo": "Book the venue", "who": "Ben", "due": dt.date(2026, 10, 12)},
+            {"id": None, "done": False, "todo": "Call the hotel", "who": "", "due": None},
+        ])
+
+    def test_unchanged_table_changes_nothing(self):
+        self.assertEqual(plan_edits(self.ITEMS, self.rows()), [])
+
+    def test_tick_rename_redate_reassign(self):
+        rows = self.rows()
+        rows[0].update(done=True, todo="Book the big venue", due=dt.date(2026, 10, 14))
+        rows[1]["who"] = "Chloe and Sam"
+        rows[2]["done"] = False
+        self.assertEqual(plan_edits(self.ITEMS, rows), [
+            ("update", "a", {"label": "Book the big venue", "status": "DONE", "date": "2026-10-14"}),
+            ("owners", "b", ["Chloe", "Sam"]),
+            ("update", "e", {"status": "OPEN"}),
+        ])
+
+    def test_add_and_delete(self):
+        rows = self.rows()[1:]  # the first row was deleted
+        rows.append({"id": None, "done": None, "todo": "  Call   the hotel ", "who": "Maya", "due": "2026-10-20"})
+        rows.append({"id": None, "done": None, "todo": "", "who": "Ben", "due": None})  # an empty new row: ignored
+        self.assertEqual(plan_edits(self.ITEMS, rows), [
+            ("add", {"label": "Call the hotel", "done": False, "owners": ["Maya"], "due": "2026-10-20"}),
+            ("delete", "a"),
+        ])
+
+    def test_pandas_empty_cells(self):
+        # What st.data_editor hands back for a new row: NaN everywhere, and NaN is truthy.
+        rows = self.rows() + [{"id": math.nan, "done": math.nan, "todo": "Buy snacks", "who": math.nan, "due": math.nan}]
+        self.assertEqual(plan_edits(self.ITEMS, rows), [("add", {"label": "Buy snacks", "done": False, "owners": [], "due": None})])
+        self.assertEqual(plan_edits(self.ITEMS, self.rows()[:2] + [{"id": math.nan, "todo": math.nan}] + self.rows()[2:]), [])
+
+    def test_cleared_text_and_date_are_left_alone(self):
+        rows = self.rows()
+        rows[0].update(todo="  ", due=None)
+        self.assertEqual(plan_edits(self.ITEMS, rows), [])
+
+    def test_owner_order_and_case_do_not_count_as_a_change(self):
+        items = [{**COMPLETE, "owners": ["Ben", "Maya"]}]
+        rows = editor_rows(items)
+        rows[0]["who"] = "maya, BEN"
+        self.assertEqual(plan_edits(items, rows), [])
+
+    def test_round_trip_through_a_dataframe(self):
+        # The page puts the rows in a DataFrame for st.data_editor and reads them back with to_dict("records").
+        import pandas as pd
+
+        frame = pd.DataFrame(self.rows(), columns=["id", "done", "todo", "who", "due"])
+        self.assertEqual(plan_edits(self.ITEMS, frame.to_dict("records")), [])
+        grown = pd.concat([frame, pd.DataFrame([{"todo": "Buy snacks", "due": pd.Timestamp("2026-10-30")}])], ignore_index=True)
+        self.assertEqual(plan_edits(self.ITEMS, grown.to_dict("records")),
+                         [("add", {"label": "Buy snacks", "done": False, "owners": [], "due": "2026-10-30"})])
+
+    def test_split_owners(self):
+        self.assertEqual(split_owners("Ben, Maya and Chloe & Sam / Ben"), ["Ben", "Maya", "Chloe", "Sam"])
+        self.assertEqual(split_owners(None), [])
+
+
 @unittest.skipUnless(importlib.util.find_spec("streamlit"), "streamlit not installed")
 class DemoPage(unittest.TestCase):
-    """Runs demo/app.py against a fake server whose to-dos are missing optional fields."""
+    """Runs demo/app.py against a fake server."""
 
-    def test_page_renders_incomplete_todos(self):
+    VIEWS = {
+        "actionItems": [COMPLETE, NO_DUE, NO_STATUS, NO_OWNER, BARE, DONE_ITEM],
+        "changes": [{"status": "DONE", "type": "TEXT", "created": [], "statusChanges": [], "dateChanges": []}],
+        "decisions": [{"id": "d1", "label": "Use [brackets] safely"}], "blockers": [], "orgChart": {"nodes": [], "edges": []},
+    }
+
+    def run_page(self, board=None):
         from streamlit.testing.v1 import AppTest
 
-        views = {
-            "actionItems": [COMPLETE, NO_DUE, NO_STATUS, NO_OWNER, BARE, DONE_ITEM],
-            "changes": [{"status": "DONE", "type": "TEXT", "created": [], "statusChanges": [], "dateChanges": []}],
-            "decisions": [], "blockers": [], "orgChart": {"nodes": [], "edges": []},
-        }
         responses = {
             "/api/status": {"reachable": True, "cloudinary": False, "visionModel": "test"},
-            "/api/workspaces": [{"id": "w1", "name": "Demo"}],
-            "/api/workspaces/w1/views": views,
-            "/api/workspaces/w1": {"sources": []},
+            "/api/workspaces/w1/views": self.VIEWS,
+            "/api/workspaces/w1": {"workspace": {"id": "w1", "name": "Team offsite · 3f2a"}, "sources": [], "nodes": [], "edges": []},
         }
+        calls = []
 
         def fake_request(method, url, **_):
+            path = url.split("8787", 1)[1]
+            calls.append((method, path))
+            if path not in responses:
+                return mock.Mock(ok=False, status_code=404, text="not found")
             r = mock.Mock(ok=True)
-            r.json.return_value = responses[url.split("8787", 1)[1]]
+            r.json.return_value = responses[path]
             return r
 
+        at = AppTest.from_file(str(Path(__file__).with_name("app.py")), default_timeout=30)
+        if board:
+            at.query_params["board"] = board
         with mock.patch("requests.request", side_effect=fake_request):
-            at = AppTest.from_file(str(Path(__file__).with_name("app.py")), default_timeout=30).run()
+            at.run()
+        return at, calls
+
+    def test_start_screen_offers_a_new_board_and_lists_no_one_elses(self):
+        at, calls = self.run_page()
+        self.assertFalse(at.exception, at.exception)
+        self.assertEqual([b.label for b in at.button], ["Start with an example", "Start with a blank board"])
+        self.assertNotIn(("GET", "/api/workspaces"), calls, "the page must never list other people's boards")
+
+    def test_board_renders_incomplete_todos(self):
+        at, _ = self.run_page("w1")
         self.assertFalse(at.exception, at.exception)
         page = "\n".join(m.value for m in at.markdown)
         for label in ("Book the venue", "Order the catering", "Send the invitations", "Print the badges", "Call the hotel", "Write the agenda"):
             self.assertIn(label, page)
         self.assertIn("| **Call the hotel** | nobody yet | no date |", page)
+        self.assertIn("Your board: Team offsite · 3f2a", page)
+        self.assertIn("Use \\[brackets\\] safely", page, "decision labels are escaped")
+        self.assertIn("?board=w1", "\n".join(c.value for c in at.code), "the board's own link is shown")
+
+    def test_missing_board(self):
+        at, _ = self.run_page("gone")
+        self.assertFalse(at.exception, at.exception)
+        self.assertIn("doesn't exist", "\n".join(w.value for w in at.warning))
 
 
 if __name__ == "__main__":

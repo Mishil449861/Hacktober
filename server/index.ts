@@ -399,8 +399,11 @@ if (fs.existsSync(dist)) {
   app.get(/^\/(?!api|uploads).*/, (_req, res) => res.sendFile(path.join(dist, 'index.html')))
 }
 
-app.listen(port, () => {
-  console.log(`OrgMap AI server on http://localhost:${port} (cloudinary: ${cloudinaryEnabled ? 'on' : 'off, local storage'})`)
+// HOST=127.0.0.1 keeps the API off the network (the cloud setup does this: only the demo page is published).
+// Unset = all interfaces, so phones on the same Wi-Fi can reach the capture page.
+const host = process.env.HOST || undefined
+app.listen(port, host as string, () => {
+  console.log(`OrgMap AI server on http://${host ?? 'localhost'}:${port} (cloudinary: ${cloudinaryEnabled ? 'on' : 'off, local storage'})`)
   startInbox((id) => void runAnalysis(id))
   if (cloudinaryEnabled) console.log(`[capture] phone page: ${captureUrls()[0]}`)
 })

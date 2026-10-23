@@ -18,7 +18,19 @@ One screen. Typed notes take about 15 to 25 seconds per step, the photo about 40
 .\start-demo.ps1
 ```
 
-The browser opens **http://localhost:8501** by itself; if it doesn't, open that address.
+The browser opens **http://localhost:8501** by itself; if it doesn't, open that address. To let people use it from their own devices, see [Sharing it publicly](#sharing-it-publicly).
+
+### Everyone gets their own board
+
+The page opens on a start screen. Each visitor names a board (optional) and picks **Start with an example** (the guided tour below) or **Start with a blank board** (straight to their own notes). Each board has its own private link, `…/?board=<id>`, shown at the top of the board:
+
+- **Only people with the link can see or change a board.** The page never lists boards, and the id in the link is a random UUID, so boards can't be guessed or browsed.
+- **Bookmark the link to come back**, or send it to teammates to work on the same board together.
+- **New board** starts another one (the current board stays at its link); **Delete this board** removes it, with its notes and photos, for good.
+
+Everything on a board can be changed: add notes or photos at any time (later notes update the list, e.g. "… Done." ticks a to-do off), or open **Edit the to-do list** and tick off, rename, reassign (several people: `Ben, Maya`), change dates, add rows and delete rows directly, then press **Save changes**. Manual edits and later notes work together: a note can tick off a to-do you renamed by hand.
+
+### The example
 
 | Step | You do | You see |
 |---|---|---|
@@ -27,9 +39,32 @@ The browser opens **http://localhost:8501** by itself; if it doesn't, open that 
 | 3 | A whiteboard photo is shown. Press **Read the photo** (or use your own photo or the laptop camera). | Two more to-dos, another one ticked off, and a panel showing exactly what Cloudinary did with the photo. |
 | 4 | Type your own line, for example `Sam will write the agenda by Friday.` | It joins the list. |
 
-**Start over** resets it for the next person. Dates in the prepared notes are computed from today, and the whiteboard says "by Friday", so nothing ever looks stale. From step 2 on, what the latest input added is shown in green and what it changed in orange.
+For the next person, press **New board** (or **Delete this board**). Dates in the prepared notes are computed from today, and the whiteboard says "by Friday", so nothing ever looks stale. From step 2 on, what the latest input added is shown in green and what it changed in orange.
 
 The page runs in presentation mode ([.streamlit/config.toml](.streamlit/config.toml)): no Deploy button, developer menu or Streamlit pop-ups.
+
+### Sharing it publicly
+
+The AI runs on this laptop, so the page can't be hosted on its own (on Streamlit Community Cloud, for example, it would have no server or model to talk to). Instead, [Tailscale Funnel](https://tailscale.com/kb/1223/funnel) (free) gives the laptop's demo page a permanent public address:
+
+**https://orgmap.tailb4b076.ts.net**
+
+Set up once (already done on this laptop):
+
+```powershell
+winget install --id Tailscale.Tailscale                           # sign in when the Tailscale app asks
+& "C:\Program Files\Tailscale\tailscale.exe" set --hostname=orgmap  # the "orgmap" part of the address
+& "C:\Program Files\Tailscale\tailscale.exe" funnel --bg 8501       # first time: approve Funnel in the page it links to
+```
+
+After that, Funnel stays on, including after a restart. To share the demo, just run `.\start-demo.ps1` and send the address; each visitor gets their own board. Check with `tailscale funnel status`; turn it off with `tailscale funnel --https=443 off`.
+
+- **It works only while the laptop is on**, Tailscale is running (it starts with Windows) and the demo is running (`.\start-demo.ps1`). Otherwise visitors get an error page.
+- **The address stays the same**, and so do board links. The `tailb4b076` part is your Tailscale network's name; it can be changed once to a friendlier pair of words in the Tailscale admin console (**DNS → Rename tailnet**), but that changes every existing board link.
+- **Only the demo page is public.** The OrgMap server (port 8787) and the graph editor (5173) stay on the laptop.
+- No Tailscale? A free Cloudflare quick tunnel also works, with a random address that changes on every restart: `winget install --id Cloudflare.cloudflared`, then `& "C:\Program Files (x86)\cloudflared\cloudflared.exe" tunnel --url http://localhost:8501`.
+- **One AI for everyone.** Notes from several visitors are read one at a time, so at busy moments a step waits its turn (photos take about a minute each).
+- **No login.** Anyone with a board's link can change it, and visitors' photos go to your Cloudinary account. Boards stay until someone deletes them: tidy up with `DELETE /api/workspaces/<id>`, or remove `data/db.json` while the server is stopped to clear everything.
 
 ---
 
@@ -48,7 +83,7 @@ Typed notes never leave the laptop. **Every photo goes through Cloudinary**, and
 Ways to verify it yourself:
 
 - **On screen:** the "What Cloudinary did with the photo" panel shows all three images served from `res.cloudinary.com`, the URL above, the asset's public ID, size and upload time.
-- **In your Cloudinary console:** Media Library → folder `orgmap/<project id>` contains the uploaded photo, named "OrgMap <file name>" (search for "OrgMap"), while the demo project exists. **Start over** deletes the photo and its folder again.
+- **In your Cloudinary console:** Media Library → folder `orgmap/<board id>` contains the uploaded photo, named "OrgMap <file name>" (search for "OrgMap"), while the board exists. **Delete this board** deletes the photo and its folder again.
 - **In the code:** [server/cloudinary.ts](server/cloudinary.ts) (upload and the three transformations), [server/inbox.ts](server/inbox.ts) and [server/capture.ts](server/capture.ts).
 - **Turn it off:** remove the Cloudinary keys from `.env` and the panel says the photo was stored on the laptop instead.
 
@@ -241,7 +276,8 @@ All in `.env` (see [.env.example](.env.example)):
 ```bash
 npm test                 # 54 unit tests: the notes parser, handwritten lists and ownership, crossed-out items,
                          # name matching, validation, relationship fixes, status history, views (no model needed)
-npm run test:demo        # 18 tests of the demo's to-do list, including to-dos with no date, owner or status
+npm run test:demo        # 29 tests of the demo page: the to-do list (including to-dos with no date, owner or
+                         # status), editing it, boards (start screen, private link, a deleted board)
 npm run test:eval        # 6 extraction cases: text, name matching, org chart, process flow, diagram + notes
 npm run test:scenario    # a 4-meeting, 2-photo project with 13 checks on the result
 npm run test:handwritten # two handwritten photos and two typed notes, first meeting then follow-up
@@ -262,7 +298,7 @@ npm run test:eval; npm run test:scenario; npm run test:handwritten
 
 Add `$env:CLOUDINARY_DISABLED='true'` in terminal 1 to keep test photos out of Cloudinary. Run one test server at a time: two servers analyzing at once can exhaust 16 GB of RAM.
 
-Last full run (Oct 18, 2026, `qwen2.5vl:7b`): unit 54/54, demo 18/18, eval 6/6 (node and edge recall 100%), scenario 13/13, handwritten photos 36/36 (3 runs in a row) and typed 41/41.
+Last full run (Oct 18, 2026, `qwen2.5vl:7b`): unit 54/54, demo 18/18, eval 6/6 (node and edge recall 100%), scenario 13/13, handwritten photos 36/36 (3 runs in a row) and typed 41/41. Boards (Oct 23): demo 29/29; with the model, two visitors' boards stayed separate, every kind of edit was saved, and the full example passed on a fresh board.
 
 **When a to-do comes out wrong**, look at the source's extraction trace: `GET /api/sources/<id>/trace` (also saved as `data/debug/<id>.json`; on by default in development, `ORGMAP_DEBUG=false` turns it off). It lists, in order, the OCR text, the model's raw reply and its validated form (including the vision transcript), what the notes parser read, the cleaned extraction, the merge report and the resulting to-dos. The first stage where the to-do is wrong is the stage to fix: vision (transcript misread), parser, cleanup, or merge. `npm run test:handwritten` prints these stages for each photo.
 
@@ -274,8 +310,9 @@ Last full run (Oct 18, 2026, `qwen2.5vl:7b`): unit 54/54, demo 18/18, eval 6/6 (
 .streamlit/
   config.toml         presentation mode for the demo page
 demo/
-  app.py              the demo page (Streamlit)
-  todos.py            the to-do table, tolerant of to-dos with missing fields (tests: test_todos.py)
+  app.py              the demo page (Streamlit): start screen, one board per visitor
+  client.py           the page's calls to the server, including applying to-do edits
+  todos.py            the to-do table and what an edit changes, tolerant of missing fields (tests: test_todos.py)
   whiteboard.png      the sample photo for step 3 (source: whiteboard.html)
 server/
   index.ts            REST API, analysis queue
@@ -322,5 +359,6 @@ The graph editor at `http://localhost:5173` shows the full map behind the to-do 
 - Crossed-out items in photos are recognized by how the model writes the strike line (see above). A messier photo or a different model may write it differently and let the item through.
 - Free-form sentences outside the patterns above are read by the model and can be misread. Check the result.
 - Arrow directions in dense diagrams are occasionally wrong.
-- Storage is one JSON file, and there is no login. Run it on a trusted network.
+- Storage is one JSON file, and there is no login: a board's link is its only key. Don't put confidential notes on a shared demo.
+- In the edit table, a due date can be changed but not removed.
 - PDFs aren't supported yet; export slides as images.

@@ -1,5 +1,5 @@
 """
-Dates and the to-do table for the demo page, kept free of Streamlit so they can be tested on their own.
+Dates, the to-do table and to-do edits for the demo page, kept free of Streamlit so they can be tested on their own.
 
 Action items come from the local model, so any optional field can be missing: no due date, no owner,
 no description. The server sends those as null (server/views.ts), and `action_item` below also accepts
@@ -60,6 +60,16 @@ def _cell(text: str) -> str:
     return re.sub(r"\s+", " ", text).replace("|", "\\|").replace("[", "\\[").replace("]", "\\]").strip()
 
 
+md_text = _cell  # for labels shown elsewhere on the page (decisions, blockers)
+
+
+def _text(value: object) -> str:
+    """A cell from the editable table as text: None and NaN (pandas' empty cell) are ""."""
+    if value is None or (isinstance(value, float) and value != value):
+        return ""
+    return str(value)
+
+
 # Streamlit Markdown colors: what the latest update added is green, what it changed is orange.
 NEW_COLOR, CHANGED_COLOR = "green", "orange"
 STATUS_BADGE = {"DONE": "Just done", "RESOLVED": "Just resolved", "IN_PROGRESS": "Now in progress", "OPEN": "Reopened",
@@ -85,6 +95,82 @@ def changes_by_item(change: dict | None) -> dict[str, dict]:
     for c in change.get("dateChanges") or []:
         put(c, due=(c.get("from"), c.get("to")))
     return out
+
+
+def split_owners(text: object) -> list[str]:
+    """ "Ben, Maya" / "Ben and Maya" / "Ben & Maya" -> ["Ben", "Maya"]; duplicates and blanks dropped."""
+    out: list[str] = []
+    for name in re.split(r"\s*(?:,|;|&|\+|/|\band\b)\s*", str(text or "")):
+        name = name.strip()
+        if name and name.lower() not in (o.lower() for o in out):
+            out.append(name)
+    return out
+
+
+def editor_rows(raw_items: list) -> list[dict]:
+    """The to-do list as rows for the editable table: id (hidden), done, to-do, who, by when (a date)."""
+    rows = []
+    for a in (action_item(r) for r in raw_items or []):
+        if not a:
+            continue
+        try:
+            due = dt.date.fromisoformat(a["due"][:10]) if a["due"] else None
+        except ValueError:
+            due = None
+        rows.append({"id": a.get("id"), "done": a["status"] in DONE, "todo": a["label"], "who": ", ".join(a["owners"]), "due": due})
+    return rows
+
+
+def _iso(value: object) -> str | None:
+    """A date from the table (date, datetime, pandas Timestamp, "2026-10-12" or empty) as YYYY-MM-DD."""
+    if value is None or (isinstance(value, float) and value != value):  # None / NaN
+        return None
+    if hasattr(value, "isoformat"):
+        try:
+            return value.isoformat()[:10]
+        except ValueError:  # pandas NaT
+            return None
+    text = str(value).strip()[:10]
+    return text if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text) else None
+
+
+def plan_edits(raw_items: list, rows: list[dict]) -> list[tuple]:
+    """Compare the to-do list with what was typed into the editable table and return the changes to make:
+      ("add", {"label", "done", "owners", "due"})        a new row with a to-do
+      ("update", id, {"label"?, "status"?, "date"?})     renamed, ticked or unticked, or a new date
+      ("owners", id, ["Ben", "Maya"])                    who it is assigned to changed
+      ("delete", id)                                     the row was removed
+    A row whose to-do text was cleared is left unchanged (a to-do needs a name). A cleared date is left as
+    it was: dates can be changed, not removed."""
+    before = {a["id"]: a for a in (action_item(r) for r in raw_items or []) if a and a.get("id")}
+    ops: list[tuple] = []
+    kept: set[str] = set()
+    for r in rows or []:
+        rid = r.get("id") if isinstance(r.get("id"), str) and r.get("id") else None
+        label = re.sub(r"\s+", " ", _text(r.get("todo"))).strip()
+        # A new row's checkbox can be None or NaN (truthy!), so only an actual True counts as ticked.
+        owners, due, done = split_owners(_text(r.get("who"))), _iso(r.get("due")), str(r.get("done")).lower() == "true"
+        if rid is None:
+            if label:
+                ops.append(("add", {"label": label, "done": done, "owners": owners, "due": due}))
+            continue
+        kept.add(rid)
+        b = before.get(rid)
+        if not b or not label:
+            continue
+        changes = {}
+        if label != b["label"]:
+            changes["label"] = label
+        if done != (b["status"] in DONE):
+            changes["status"] = "DONE" if done else "OPEN"
+        if due and due != (b["due"] or "")[:10]:
+            changes["date"] = due
+        if changes:
+            ops.append(("update", rid, changes))
+        if sorted(o.lower() for o in owners) != sorted(o.lower() for o in b["owners"]):
+            ops.append(("owners", rid, owners))
+    ops += [("delete", rid) for rid in before if rid not in kept]
+    return ops
 
 
 def todo_table(raw_items: list, latest_change: dict | None = None) -> tuple[str, int]:
