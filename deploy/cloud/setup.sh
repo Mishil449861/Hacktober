@@ -87,8 +87,9 @@ id "$APP_USER" >/dev/null 2>&1 || useradd --system --home-dir "$DATA_HOME" --cre
 mkdir -p "$DATA_HOME/data"
 if [ -d "$APP_DIR/.git" ]; then
   log "updating the code"
-  git -C "$APP_DIR" fetch --depth 1 origin "$BRANCH"
-  git -C "$APP_DIR" reset --hard FETCH_HEAD
+  # The folder belongs to the app user; root must vouch for it or git refuses ("dubious ownership").
+  git -c safe.directory="$APP_DIR" -C "$APP_DIR" fetch --depth 1 origin "$BRANCH"
+  git -c safe.directory="$APP_DIR" -C "$APP_DIR" reset --hard FETCH_HEAD
 else
   log "downloading the code"
   git clone --depth 1 --branch "$BRANCH" "$REPO" "$APP_DIR"

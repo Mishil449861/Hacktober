@@ -120,7 +120,10 @@ export function ollamaRuntime(): LocalRuntime {
   // On a 16GB machine the text (~10GB) and vision (~6GB) models cannot both stay resident:
   // unload the previous model before switching so only one is ever loaded.
   const unloadOnSwitch = process.env.OLLAMA_UNLOAD_ON_SWITCH !== 'false'
-  const keepAlive = process.env.OLLAMA_KEEP_ALIVE ?? '5m'
+  // "5m", "24h", or a plain number of seconds; Ollama rejects a bare "-1" string ("missing unit in duration")
+  // but accepts the number -1, which keeps the model loaded indefinitely.
+  const keepAliveRaw = process.env.OLLAMA_KEEP_ALIVE ?? '5m'
+  const keepAlive = /^-?\d+$/.test(keepAliveRaw.trim()) ? Number(keepAliveRaw) : keepAliveRaw
   async function switchTo(model: string) {
     if (!unloadOnSwitch) return
     // Ask Ollama what is resident (any client may have loaded it), and evict everything else.
