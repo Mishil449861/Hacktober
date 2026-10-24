@@ -19,7 +19,8 @@ export const inboxState = { enabled: false, lastPollAt: undefined as string | un
 
 /** Create the workspace's inbox folder so it shows up in the Media Library / mobile app. */
 export async function ensureInboxFolder(ws: Workspace) {
-  if (!cloudinaryEnabled) return
+  // No inbox (e.g. the hosted demo): don't spend an Admin API call per new board on a folder nobody uses.
+  if (!cloudinaryEnabled || process.env.CLOUDINARY_INBOX === 'false') return
   await cloudinary.api.create_folder(inboxFolder(ws)).catch(() => undefined)
 }
 

@@ -12,7 +12,7 @@
     "server": "tsx server/index.ts",
     "start": "vite build && tsx server/index.ts",
     "demo": "python -m streamlit run demo/app.py",
-    "test": "tsx --test tests/unit.test.ts tests/views.test.ts tests/minutes.test.ts tests/handwritten.test.ts",
+    "test": "tsx --test tests/unit.test.ts tests/views.test.ts tests/minutes.test.ts tests/handwritten.test.ts tests/byok.test.ts",
     "test:demo": "python -m unittest discover -s demo -v",
     "test:eval": "tsx tests/eval.ts",
     "test:scenario": "tsx tests/scenario.ts",
@@ -34,6 +34,7 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "tesseract.js": "^7.0.0",
+    "tsx": "^4.23.15",
     "zod": "^4.6.5"
   },
   "devDependencies": {
@@ -46,7 +47,6 @@
     "@vitejs/plugin-react": "^6.1.1",
     "concurrently": "^10.0.5",
     "oxlint": "^1.81.0",
-    "tsx": "^4.23.15",
     "typescript": "~6.0.2",
     "vite": "^8.3.0"
   }

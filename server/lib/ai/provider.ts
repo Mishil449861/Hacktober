@@ -1,6 +1,7 @@
 /**
- * Local model abstraction. The rest of the app calls analyzeImage / analyzeText /
- * reconcileGraph and never touches a runtime directly. No hosted APIs.
+ * Model abstraction. The rest of the app calls analyzeImage / analyzeText / reconcileGraph and never
+ * touches a runtime directly. The model is local (Ollama or another local server), except on a hosted
+ * demo, where a visitor's own key for a hosted provider is used for their notes (runtimes.ts withAi).
  */
 import type { z } from 'zod'
 import {
@@ -279,7 +280,8 @@ export async function analyzeText(text: string, context?: string, ctx: AnalysisC
     // Degrade instead of failing the whole source: the parser's output still updates the map.
     if (!parsed.nodes.length) throw e
     console.warn('[ai] model extraction failed, using minutes parser only:', (e as Error).message)
-    const extraction = sanitize(combineWithModel({ summary: '', nodes: [], edges: [], ambiguities: ['Model extraction failed; structured items only.'] }, parsed), ctx.knownEntities)
+    const reason = (e as Error).message.slice(0, 300)
+    const extraction = sanitize(combineWithModel({ summary: '', nodes: [], edges: [], ambiguities: [`Model extraction failed (${reason}); structured items only.`] }, parsed), ctx.knownEntities)
     ctx.trace?.push({ stage: 'final', data: extraction })
     return { extraction, model: 'minutes parser (model failed)' }
   }
@@ -400,7 +402,9 @@ Identify systems, components, teams, people, processes, dependencies, ownership,
       if (!ocrText) throw e
       console.warn('[ai] vision extraction failed, falling back to OCR + text:', (e as Error).message)
       const res = await analyzeText(ocrText, `Text OCR-extracted from a whiteboard / sprint board photo named "${name}".`, { ...ctx, photo: true })
-      return { ...res, extraction: sanitize(addOcrAnnotations(res.extraction, ocrText), ctx.knownEntities), model: `tesseract + ${res.model} (vision failed)`, ocrText }
+      const extraction = sanitize(addOcrAnnotations(res.extraction, ocrText), ctx.knownEntities)
+      extraction.ambiguities = [`Vision model failed (${(e as Error).message.slice(0, 300)}); the photo was read with OCR.`, ...extraction.ambiguities]
+      return { ...res, extraction, model: `tesseract + ${res.model} (vision failed)`, ocrText }
     }
     ctx.trace?.push({ stage: 'model.validated', data: extraction })
     // A photo of written notes ("Maya:" over a list, "TODO: Ben: book the bus by Friday") is read with the

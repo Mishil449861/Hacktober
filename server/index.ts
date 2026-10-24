@@ -6,7 +6,9 @@ import express from 'express'
 import multer from 'multer'
 import { NODE_STATUSES, NODE_TYPES, RELATIONSHIP_TYPES, type GraphEdge, type Source, type SystemStatus } from '../src/shared/schema.ts'
 import { analysisUrl, cloudName, cloudinaryEnabled, deleteImage, previewUrl, thumbUrl, uploadImage } from './cloudinary.ts'
-import { analyzeImage, analyzeText, systemInfo, type Trace } from './lib/ai/provider.ts'
+import { analyzeImage, analyzeText, runtime, systemInfo, type Trace } from './lib/ai/provider.ts'
+import { AI_PROVIDERS, keyRuntime, withAi, type AiKey } from './lib/ai/runtimes.ts'
+import { restoreBackup, startBackup } from './backup.ts'
 import { deriveState, mergeExtraction, mergeNodes, retractHistory } from './graph/reconcile.ts'
 import { buildReport, buildViews } from './views.ts'
 import { DATA_DIR, newId, now, persist, persistError, store, UPLOAD_DIR } from './store.ts'
@@ -55,9 +57,40 @@ app.get('/api/status', wrap(async (_req, res) => {
     cloudName: cloudinaryEnabled ? cloudName : undefined,
     inbox: { ...inboxState, root: INBOX_ROOT, captureUrls: captureUrls() },
     notes,
+    // Hosted demos have no AI of their own: visitors bring a key for one of these.
+    aiProviders: Object.entries(AI_PROVIDERS).map(([id, p]) => ({ id, label: p.label, defaultModel: p.defaultModel, keyUrl: p.keyUrl })),
   }
   if (inboxState.lastError) notes.push(`Cloudinary inbox: ${inboxState.lastError}`)
   res.json(status)
+}))
+
+// ---------- visitors' own AI keys ----------
+/** A key from a request body (ai_provider, ai_key, ai_model), or undefined if none was sent. Throws if it's unusable. */
+function keyFrom(body: Record<string, unknown> | undefined): AiKey | undefined {
+  const apiKey = String(body?.ai_key ?? '').trim()
+  if (!apiKey) return undefined
+  if (apiKey.length > 512) throw new Error('That API key is too long')
+  const k: AiKey = { provider: String(body?.ai_provider ?? ''), apiKey, model: String(body?.ai_model ?? '').trim().slice(0, 100) || undefined }
+  keyRuntime(k) // validates provider, model, key
+  return k
+}
+/** Never echo a key back: providers sometimes quote it in error messages. */
+const redact = (msg: string, k?: AiKey) => (k ? msg.split(k.apiKey).join('[your key]') : msg)
+
+/** Try a key with a tiny request, so the page can say "key works" before any notes are sent. */
+app.post('/api/ai/check', wrap(async (req, res) => {
+  let k: AiKey | undefined
+  try {
+    k = keyFrom(req.body)
+    if (!k) return void res.status(400).json({ ok: false, error: 'Add an API key' })
+    const reply = await withAi(k, () => runtime.chat({
+      system: 'Reply with JSON only.', user: 'Reply with {"ok": true}.',
+      jsonSchema: { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'] },
+    }))
+    res.json({ ok: true, model: await keyRuntime(k).textModel(), reply: reply.slice(0, 80) })
+  } catch (e) {
+    res.json({ ok: false, error: redact((e as Error).message, k) })
+  }
 }))
 
 /** URLs a phone on the same Wi-Fi can open to photograph notes. */
@@ -102,15 +135,36 @@ app.post('/api/workspaces', (req, res) => {
   res.json(ws)
 })
 app.delete('/api/workspaces/:id', wrap(async (req, res) => {
-  // Remove the workspace's images from Cloudinary too (uploads and inbox photos).
-  const ws = store.db.workspaces.find((w) => w.id === req.params.id)
-  for (const s of store.db.sources.filter((x) => x.workspaceId === req.params.id && x.cloudinary)) await deleteImage(s.cloudinary!.publicId)
-  for (const s of store.db.sources.filter((x) => x.workspaceId === req.params.id)) fs.rmSync(traceFile(s.id), { force: true })
-  // Also remove the project's (now empty) Cloudinary folders, so repeated resets don't litter the Media Library.
-  if (ws) await removeProjectFolders(ws)
-  store.deleteWorkspace(String(req.params.id))
+  await deleteWorkspace(String(req.params.id))
   res.json({ ok: true })
 }))
+
+async function deleteWorkspace(id: string) {
+  // Remove the workspace's images from Cloudinary too (uploads and inbox photos).
+  const ws = store.db.workspaces.find((w) => w.id === id)
+  for (const s of store.db.sources.filter((x) => x.workspaceId === id && x.cloudinary)) await deleteImage(s.cloudinary!.publicId)
+  for (const s of store.db.sources.filter((x) => x.workspaceId === id)) fs.rmSync(traceFile(s.id), { force: true })
+  // Also remove the project's (now empty) Cloudinary folders, so repeated resets don't litter the Media Library.
+  if (ws) await removeProjectFolders(ws)
+  store.deleteWorkspace(id)
+}
+
+/**
+ * BOARD_MAX_AGE_DAYS (the hosted demo): delete boards nobody has touched for that long, with their photos,
+ * at startup and daily, so a public demo doesn't collect strangers' notes forever.
+ */
+async function deleteStaleBoards() {
+  const days = Number(process.env.BOARD_MAX_AGE_DAYS)
+  if (!days) return
+  const cutoff = Date.now() - days * 86_400_000
+  for (const ws of [...store.db.workspaces]) {
+    const last = Math.max(Date.parse(ws.createdAt), ...store.db.sources.filter((s) => s.workspaceId === ws.id).map((s) => Date.parse(s.createdAt)))
+    if (last < cutoff) {
+      await deleteWorkspace(ws.id).catch((e) => console.error('[cleanup]', (e as Error).message))
+      console.log(`[cleanup] deleted board "${ws.name}" (no activity since ${new Date(last).toISOString().slice(0, 10)})`)
+    }
+  }
+}
 app.get('/api/workspaces/:id', (req, res) => {
   const s = store.state(req.params.id)
   if (!s) return void res.status(404).json({ error: 'not found' })
@@ -133,6 +187,15 @@ app.get('/api/workspaces/:id/report.md', (req, res) => {
 app.post('/api/workspaces/:id/sources', upload.array('files', 20), wrap(async (req, res) => {
   const workspaceId = String(req.params.id)
   if (!store.state(workspaceId)) return void res.status(404).json({ error: 'workspace not found' })
+  let key: AiKey | undefined
+  try {
+    key = keyFrom(req.body)
+  } catch (e) {
+    return void res.status(400).json({ error: (e as Error).message })
+  }
+  if (!key && req.body?.analyze !== 'false' && !(await runtime.reachable())) {
+    return void res.status(400).json({ error: 'This demo has no AI of its own: add your AI key first.' })
+  }
   const created: Source[] = []
   const meetingDate = /^\d{4}-\d{2}-\d{2}$/.test(String(req.body?.date ?? '')) ? String(req.body.date) : undefined
   const base = { workspaceId, status: 'PENDING' as const, createdAt: now(), ...(meetingDate ? { meetingDate } : {}) }
@@ -172,6 +235,8 @@ app.post('/api/workspaces/:id/sources', upload.array('files', 20), wrap(async (r
   }
   store.db.sources.push(...created)
   persist()
+  // The key waits in memory for its turn in the queue, is used for these sources only, and is then dropped.
+  if (key) for (const s of created) visitorKeys.set(s.id, key)
   if (req.body?.analyze !== 'false') for (const s of created) void runAnalysis(s.id)
   res.json(created)
 }))
@@ -237,17 +302,23 @@ function retractSource(s: Source) {
 
 /** Serialized analysis queue: a local GPU handles one model call at a time well. */
 let queue = Promise.resolve()
+/** Visitors' keys for sources still waiting to be read. Memory only: never saved, never logged. */
+const visitorKeys = new Map<string, AiKey>()
 function runAnalysis(sourceId: string) {
   const s = store.source(sourceId)
   if (!s) return
   s.status = 'ANALYZING'
   s.error = undefined
   persist()
-  queue = queue.then(() => analyzeSource(sourceId)).catch(() => undefined)
+  const key = visitorKeys.get(sourceId)
+  queue = queue
+    .then(() => (key ? withAi(key, () => analyzeSource(sourceId, key)) : analyzeSource(sourceId)))
+    .catch(() => undefined)
+    .finally(() => { visitorKeys.delete(sourceId) })
   return queue
 }
 
-async function analyzeSource(sourceId: string) {
+async function analyzeSource(sourceId: string, key?: AiKey) {
   const s = store.source(sourceId)
   if (!s) return
   const t0 = Date.now()
@@ -263,6 +334,7 @@ async function analyzeSource(sourceId: string) {
   }
   try {
     const result = s.type === 'IMAGE' ? await analyzeImage(await loadAnalysisImage(s), s.name, ctx) : await analyzeText(s.text ?? '', undefined, ctx)
+    result.extraction.ambiguities = result.extraction.ambiguities.map((a) => redact(a, key))
     const report = await mergeExtraction(s.workspaceId, s.id, result.extraction, asOf)
     Object.assign(s, {
       status: 'DONE', summary: result.extraction.summary, ambiguities: result.extraction.ambiguities,
@@ -277,9 +349,9 @@ async function analyzeSource(sourceId: string) {
     console.log(`[analyze] ${s.name}: ${JSON.stringify(report)} via ${result.model} in ${((Date.now() - t0) / 1000).toFixed(1)}s`)
   } catch (e) {
     s.status = 'ERROR'
-    s.error = (e as Error).message
+    s.error = redact((e as Error).message, key)
     trace?.push({ stage: 'error', data: s.error })
-    console.error(`[analyze] ${s.name} failed:`, e)
+    console.error(`[analyze] ${s.name} failed: ${s.error}`)
   }
   if (trace) {
     try {
@@ -402,8 +474,13 @@ if (fs.existsSync(dist)) {
 // HOST=127.0.0.1 keeps the API off the network (the cloud setup does this: only the demo page is published).
 // Unset = all interfaces, so phones on the same Wi-Fi can reach the capture page.
 const host = process.env.HOST || undefined
+// Hosted demo: bring the boards back from the Cloudinary backup before accepting requests.
+await restoreBackup()
+startBackup()
 app.listen(port, host as string, () => {
   console.log(`OrgMap AI server on http://${host ?? 'localhost'}:${port} (cloudinary: ${cloudinaryEnabled ? 'on' : 'off, local storage'})`)
   startInbox((id) => void runAnalysis(id))
   if (cloudinaryEnabled) console.log(`[capture] phone page: ${captureUrls()[0]}`)
+  void deleteStaleBoards()
+  setInterval(() => void deleteStaleBoards(), 86_400_000)
 })

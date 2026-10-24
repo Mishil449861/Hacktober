@@ -255,4 +255,6 @@ export interface SystemStatus {
   cloudName?: string
   inbox?: { enabled: boolean; root: string; lastPollAt?: string; lastError?: string; imported: number; captureUrls: string[] }
   notes: string[]
+  /** Providers a visitor can use with their own API key (hosted demo, or instead of the local model). */
+  aiProviders?: { id: string; label: string; defaultModel?: string; keyUrl: string }[]
 }

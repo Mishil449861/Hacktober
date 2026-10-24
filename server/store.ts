@@ -23,6 +23,9 @@ let db: Db = fs.existsSync(DB_FILE)
 let writeTimer: NodeJS.Timeout | undefined
 /** Set while the last save failed (e.g. disk full); shown in /api/status. The data stays in memory. */
 export let persistError: string | undefined
+const persistListeners: (() => void)[] = []
+/** Called after every save (the hosted demo's Cloudinary backup listens here). */
+export const onPersist = (fn: () => void) => { persistListeners.push(fn) }
 
 /** Debounced atomic write: temp file + rename so a crash never leaves a half-written db. */
 export function persist() {
@@ -33,6 +36,7 @@ export function persist() {
       fs.writeFileSync(tmp, JSON.stringify(db, null, 2))
       fs.renameSync(tmp, DB_FILE)
       persistError = undefined
+      for (const fn of persistListeners) fn()
     } catch (e) {
       // A full disk must not take the server down: keep serving from memory and retry shortly.
       const code = (e as NodeJS.ErrnoException).code

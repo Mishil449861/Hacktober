@@ -8,12 +8,18 @@ Photos are stored and transformed by Cloudinary, and the page shows exactly what
 Each visitor gets their own board, reached by a private link (?board=<id>). The page never lists
 boards, so nobody can browse anyone else's; the board id in the link is the key.
 
+The AI is the local model when the server has one (the laptop setup). A hosted copy (Streamlit Community
+Cloud, ORGMAP_HOSTED=true) has none: there each visitor brings their own API key, which stays in their
+browser session and is sent with their notes only, and the page starts the server itself (server_boot.py).
+
     npm run dev     # terminal 1: API + local model
     npm run demo    # terminal 2: this page (http://localhost:8501)
 """
 from __future__ import annotations
 
 import datetime as dt
+import json
+import os
 import secrets
 import time
 from pathlib import Path
@@ -21,7 +27,8 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from client import api, apply_edits
+from client import API, api, apply_edits
+from server_boot import ensure_server
 from todos import (CHANGED_COLOR, NEW_COLOR, changes_by_item, editor_rows, friendly, md_text, plan_edits, short,
                    todo_table)
 
@@ -59,19 +66,83 @@ def board_link(board_id: str, example: bool) -> str:
     return f"{base}?board={board_id}" + ("&example=1" if example else "")
 
 
-def read(ws_id: str, date: dt.date, text: str = "", photo: tuple | None = None):
+def error_text(e: Exception) -> str:
+    """The server's own message from client.api's "<status>: <body>" error."""
+    body = str(e).split(": ", 1)[-1]
+    try:
+        return str(json.loads(body).get("error") or body)
+    except (ValueError, AttributeError):
+        return body
+
+
+def ai_key() -> dict | None:
+    """The visitor's AI key for this browser session, if they gave one."""
+    k = st.session_state.get("ai")
+    return k if k and k.get("key") else None
+
+
+def ai_fields() -> dict:
+    """Form fields that send the visitor's key with their notes (nothing when they gave none)."""
+    k = ai_key()
+    return {"ai_provider": k["provider"], "ai_key": k["key"], "ai_model": k["model"]} if k else {}
+
+
+def read(ws_id: str, date: dt.date, text: str = "", photo: tuple | None = None) -> bool:
     stamp = time.strftime("%H:%M:%S")
-    if text.strip():
-        api("POST", f"/api/workspaces/{ws_id}/sources", data={"text": text, "name": f"Notes {stamp}", "date": date.isoformat()})
-    if photo:
-        api("POST", f"/api/workspaces/{ws_id}/sources", data={"date": date.isoformat()}, files={"files": photo})
-    with st.spinner("Reading on this laptop… usually 15 to 40 seconds, about a minute for a photo. "
+    try:
+        if text.strip():
+            api("POST", f"/api/workspaces/{ws_id}/sources",
+                data={"text": text, "name": f"Notes {stamp}", "date": date.isoformat(), **ai_fields()})
+        if photo:
+            api("POST", f"/api/workspaces/{ws_id}/sources", data={"date": date.isoformat(), **ai_fields()}, files={"files": photo})
+    except RuntimeError as e:
+        st.error(f"Couldn't add that: {error_text(e)}")
+        return False
+    where = "with your AI key" if ai_key() else "on this laptop"
+    with st.spinner(f"Reading {where}… usually 15 to 40 seconds, about a minute for a photo. "
                     "If other people are adding notes at the same time, yours waits its turn."):
         while True:
             time.sleep(1.5)
             s = api("GET", f"/api/workspaces/{ws_id}")
             if not any(x["status"] in ("ANALYZING", "PENDING") for x in s["sources"]):
-                return
+                return True
+
+
+def ai_panel(providers: list[dict], required: bool) -> None:
+    """Where a visitor connects their own AI: provider, key, model, and a check that the key works."""
+    if not providers:
+        return
+    labels = {p["id"]: p["label"] for p in providers}
+    current = ai_key() or {}
+    ids = list(labels)
+    provider = st.selectbox("AI provider", ids, format_func=lambda i: labels[i] + (" (free key, no card)" if i == "gemini" else ""),
+                            index=ids.index(current["provider"]) if current.get("provider") in ids else 0, key="ai-provider")
+    p = next(x for x in providers if x["id"] == provider)
+    if p.get("keyUrl"):
+        st.markdown(f"Don't have a key? [Get one from {p['label']}]({p['keyUrl']}) (takes a minute), then paste it here.")
+    key = st.text_input("API key", type="password", value=current.get("key", "") if current.get("provider") == provider else "",
+                        key=f"ai-key-{provider}", placeholder="Paste your API key")
+    model = st.text_input("Model", value=(current.get("model") if current.get("provider") == provider else None) or p.get("defaultModel") or "",
+                          key=f"ai-model-{provider}", placeholder="Model name from your provider",
+                          help="The default is a fast model that reads photos too. Any vision-capable model works.")
+    st.caption("Your key stays in this browser tab: it is sent only with your own notes, to "
+               f"{p['label']} only, and is never saved. Close the tab and it's gone.")
+    c1, c2 = st.columns([1, 3])
+    if c1.button("Use this key", type="primary" if required else "secondary", disabled=not (key.strip() and model.strip()), key="ai-save"):
+        with st.spinner("Checking the key…"):
+            try:
+                r = api("POST", "/api/ai/check", data={"ai_provider": provider, "ai_key": key.strip(), "ai_model": model.strip()})
+            except RuntimeError as e:
+                r = {"ok": False, "error": error_text(e)}
+        if r.get("ok"):
+            st.session_state["ai"] = {"provider": provider, "key": key.strip(), "model": model.strip(), "label": p["label"]}
+            st.session_state["flash"] = f"Connected: {p['label']} ({model.strip()}). Your notes will be read with your key."
+            st.rerun()
+        else:
+            c2.error(f"That key didn't work: {r.get('error', 'unknown error')[:300]}")
+    if current and c2.button("Forget my key", key="ai-forget"):
+        st.session_state.pop("ai", None)
+        st.rerun()
 
 
 def own_photo(key: str) -> tuple[str, bytes] | None:
@@ -88,12 +159,34 @@ def own_photo(key: str) -> tuple[str, bytes] | None:
 # ------------------------------------------------------------------ page
 st.set_page_config(page_title="OrgMap AI", layout="centered")
 
+HOSTED = os.environ.get("ORGMAP_HOSTED", "").strip().lower() in ("1", "true", "yes")
+
+
+@st.cache_resource(show_spinner=False)
+def boot_server() -> bool:
+    """Hosted copy: start the server inside this container, once. A failure raises, so it's retried next visit."""
+    ensure_server(API)
+    return True
+
+
 try:
     status = api("GET", "/api/status")
 except Exception:  # noqa: BLE001
-    st.error("The OrgMap server isn't running. Start it with `npm run dev`, then refresh this page.")
-    st.stop()
-if not status["reachable"]:
+    if not HOSTED:
+        st.error("The OrgMap server isn't running. Start it with `npm run dev`, then refresh this page.")
+        st.stop()
+    with st.spinner("Starting OrgMap… the first visit after a quiet spell takes 1 to 3 minutes."):
+        try:
+            boot_server()
+            status = api("GET", "/api/status")
+        except Exception as e:  # noqa: BLE001
+            st.error(f"OrgMap couldn't start: {e}. Refresh the page in a minute to try again.")
+            st.stop()
+
+local_ai = bool(status.get("reachable"))
+providers = status.get("aiProviders") or []
+need_key = not local_ai  # no AI of its own: each visitor brings a key
+if need_key and not providers:
     st.error("The local AI model isn't running. Start the Ollama app, then refresh this page.")
     st.stop()
 
@@ -104,13 +197,28 @@ example = st.query_params.get("example") == "1"
 
 # ---- start screen: no board yet
 if not board_id:
+    ai_where = ("The AI runs on the demo's own computer" if local_ai
+                else "The AI is yours: you connect it with your own API key")
     st.caption("Type what was said in a meeting, or photograph the whiteboard. OrgMap AI works out who does what by "
-               "when and keeps it up to date. The AI runs on one laptop; photos are stored and prepared by Cloudinary.")
+               f"when and keeps it up to date. {ai_where}; photos are stored and prepared by Cloudinary.")
     st.markdown(
         "**How it works**\n\n"
         "1. Write down what was said in a meeting, or add a photo of the whiteboard.\n"
         "2. The AI turns it into a to-do list: who does what, by when. Plus decisions and who reports to whom.\n"
         "3. Add more notes later and the list updates itself. You can also edit it yourself.")
+    if flash := st.session_state.pop("flash", None):
+        st.success(flash)
+    if need_key:
+        st.subheader("1. Connect your AI")
+        if ai_key():
+            st.success(f"Connected: {ai_key()['label']} ({ai_key()['model']}).")
+            with st.expander("Change or forget the key"):
+                ai_panel(providers, required=False)
+        else:
+            st.markdown("This public demo has no AI of its own, so it uses yours. The free Google Gemini key is "
+                        "the quickest: no payment details needed.")
+            ai_panel(providers, required=True)
+        st.subheader("2. Start your board")
     st.info("You get **your own board** with a private link. Nobody else can see or change it unless you share that link.")
     name = st.text_input("Name your board (optional)", placeholder="e.g. Team offsite", max_chars=60)
     c1, c2 = st.columns(2)
@@ -146,8 +254,27 @@ with st.container(border=True):
                "or to share the board with your team:")
     st.code(board_link(board_id, example), language=None, wrap_lines=True)
 
+# Notes and photos need an AI: the visitor's key when the demo has none of its own.
+blocked = need_key and not ai_key()
+if blocked:
+    with st.container(border=True):
+        st.markdown("**Connect your AI to read notes and photos.** This public demo has no AI of its own, so it "
+                    "uses yours. The free Google Gemini key is the quickest. (Editing the to-do list works without one.)")
+        ai_panel(providers, required=True)
+elif ai_key():
+    with st.expander(f"AI: {ai_key()['label']} ({ai_key()['model']}), with your key. Change or forget it"):
+        ai_panel(providers, required=False)
+
 if flash := st.session_state.pop("flash", None):
     st.success(flash)
+
+# The AI couldn't be used for the latest input (bad key, quota, outage): say so, and why.
+latest_src = max(sources, key=lambda s: s.get("createdAt") or "", default=None)
+if latest_src and "failed" in (latest_src.get("analyzedWith") or ""):
+    why = next((a for a in latest_src.get("ambiguities") or [] if "failed (" in a), "")
+    st.warning("The AI couldn't be used for your latest input, so only the parts written in a fixed format "
+               "(like \"Name: task by Friday\") were picked up." + (f"\n\nWhat the AI said: {md_text(why)}" if why else "")
+               + ("\n\nCheck your key above, or try again in a minute." if need_key else ""))
 
 # ---- results
 if stage or items:
@@ -265,8 +392,8 @@ if stage or items:
                 f"uploaded {cld['createdAt'][:16].replace('T', ' ')} UTC by a signed request from the OrgMap server "
                 f"(the API secret never reaches the browser). [Open the original]({cld['secureUrl']})")
         else:
-            st.info("This photo was stored on the laptop, because Cloudinary isn't configured. Add the three "
-                    "`CLOUDINARY_…` values to `.env` and restart `npm run dev` to store and prepare photos with Cloudinary.")
+            st.info("This photo was stored on the server itself, because Cloudinary isn't configured. Add the three "
+                    "`CLOUDINARY_…` values to `.env` (or the app's secrets) and restart to store and prepare photos with Cloudinary.")
 
 if failed:
     st.warning("One of the inputs couldn't be read. Try adding it again, or type the to-dos into the table above.")
@@ -276,17 +403,15 @@ st.divider()
 if guided and stage == 0:
     st.subheader("1. Here are some notes from a meeting")
     text = st.text_area("Notes", NOTE_1, height=150, key="notes-0", label_visibility="collapsed")
-    st.caption("Change anything you like, or just press the button.")
-    if st.button("Read my notes", type="primary", disabled=not text.strip()):
-        read(ws_id, FIRST_DAY, text)
+    st.caption("Change anything you like, or just press the button." + (" Connect your AI above first." if blocked else ""))
+    if st.button("Read my notes", type="primary", disabled=blocked or not text.strip()) and read(ws_id, FIRST_DAY, text):
         st.rerun()
 
 elif guided and stage == 1:
     st.subheader("2. A few days later, there's an update")
     text = st.text_area("Notes", NOTE_2, height=150, key="notes-1", label_visibility="collapsed")
     st.caption("Watch the to-do list above: Ben's task gets ticked off and Chloe's is added.")
-    if st.button("Add the update", type="primary", disabled=not text.strip()):
-        read(ws_id, today, text)
+    if st.button("Add the update", type="primary", disabled=blocked or not text.strip()) and read(ws_id, today, text):
         st.rerun()
 
 elif guided and stage == 2:
@@ -296,8 +421,8 @@ elif guided and stage == 2:
     mine = None
     with st.expander("Use my own photo instead (handwritten notes, a whiteboard, sticky notes)"):
         mine = own_photo("step3")
-    if st.button("Read my photo" if mine else "Read the photo", type="primary"):
-        read(ws_id, today, photo=mine or ("whiteboard.png", WHITEBOARD.read_bytes(), "image/png"))
+    if st.button("Read my photo" if mine else "Read the photo", type="primary", disabled=blocked) and \
+            read(ws_id, today, photo=mine or ("whiteboard.png", WHITEBOARD.read_bytes(), "image/png")):
         st.rerun()
 
 else:
@@ -308,11 +433,11 @@ else:
     hint = ("For example:\n- Sam: write the agenda by Friday\n- Maya: book the room by Oct 30\n"
             "Decision: we meet every Monday.\nChloe has ordered the catering. Done.")
     text = st.text_area("Notes", "", height=140, key=f"notes-{stage}", label_visibility="collapsed", placeholder=hint)
-    st.caption("Write it the way you would in a meeting: who, what, by when. Later notes like \"… Done.\" tick things off.")
+    st.caption("Write it the way you would in a meeting: who, what, by when. Later notes like \"… Done.\" tick things off."
+               + (" Connect your AI above first." if blocked else ""))
     with st.expander("Or add a photo (handwritten notes, a whiteboard, sticky notes)"):
         mine = own_photo(f"free-{stage}")
-    if st.button("Add", type="primary", disabled=not (text.strip() or mine)):
-        read(ws_id, today, text, mine)
+    if st.button("Add", type="primary", disabled=blocked or not (text.strip() or mine)) and read(ws_id, today, text, mine):
         st.rerun()
 
 st.divider()
@@ -328,4 +453,6 @@ with c2.popover("Delete this board"):
         st.query_params.clear()
         st.rerun()
 images = f"Cloudinary ({status.get('cloudName')})" if status["cloudinary"] else "local storage (Cloudinary not configured)"
-c3.caption(f"AI: {status.get('visionModel') or status.get('textModel')}, running locally. Photos: {images}.")
+ai_used = (f"{ai_key()['label']} ({ai_key()['model']}), your key" if ai_key()
+           else f"{status.get('visionModel') or status.get('textModel')}, running locally" if local_ai else "not connected")
+c3.caption(f"AI: {ai_used}. Photos: {images}.")

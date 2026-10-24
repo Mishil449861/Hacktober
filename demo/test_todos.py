@@ -260,5 +260,85 @@ class DemoPage(unittest.TestCase):
         self.assertIn("doesn't exist", "\n".join(w.value for w in at.warning))
 
 
+@unittest.skipUnless(importlib.util.find_spec("streamlit"), "streamlit not installed")
+class HostedPage(unittest.TestCase):
+    """The hosted copy: no AI of its own, so each visitor connects their own key."""
+
+    PROVIDERS = [{"id": "gemini", "label": "Google Gemini", "defaultModel": "gemini-3.8-flash", "keyUrl": "https://aistudio.google.com/apikey"},
+                 {"id": "openai", "label": "OpenAI", "keyUrl": "https://platform.openai.com/api-keys"}]
+
+    def run_page(self, board=None, key=None, check_ok=True, click=None, text=None):
+        from streamlit.testing.v1 import AppTest
+
+        views = {"actionItems": [], "changes": [], "decisions": [], "blockers": [], "orgChart": {"nodes": [], "edges": []}}
+        responses = {
+            "/api/status": {"reachable": False, "cloudinary": False, "aiProviders": self.PROVIDERS},
+            "/api/workspaces/w1/views": views,
+            "/api/workspaces/w1": {"workspace": {"id": "w1", "name": "Board · 0000"}, "sources": [], "nodes": [], "edges": []},
+            "/api/workspaces/w1/sources": [{"id": "s1"}],
+            "/api/ai/check": {"ok": True} if check_ok else {"ok": False, "error": "401 API key not valid"},
+        }
+        calls = []
+
+        def fake_request(method, url, **kw):
+            path = url.split("8787", 1)[1]
+            calls.append((method, path, kw.get("data") or {}))
+            r = mock.Mock(ok=True)
+            r.json.return_value = responses[path]
+            return r
+
+        at = AppTest.from_file(str(Path(__file__).with_name("app.py")), default_timeout=30)
+        if board:
+            at.query_params["board"] = board
+        if key:
+            at.session_state["ai"] = key
+        with mock.patch("requests.request", side_effect=fake_request), mock.patch("time.sleep"):
+            at.run()
+            if text is not None:
+                at.text_area[0].set_value(text).run()
+            if click:
+                for label, value in (click if isinstance(click, list) else [click]):
+                    if value is not None:
+                        next(t for t in at.text_input if t.label == label).set_value(value).run()
+                    else:
+                        next(b for b in at.button if b.label == label).click().run()
+        return at, calls
+
+    def test_start_screen_asks_for_a_key_first(self):
+        at, _ = self.run_page()
+        self.assertFalse(at.exception, at.exception)
+        self.assertEqual([s.value for s in at.subheader][:2], ["1. Connect your AI", "2. Start your board"])
+        self.assertIn("API key", [t.label for t in at.text_input])
+        self.assertEqual(next(t for t in at.text_input if t.label == "Model").value, "gemini-3.8-flash")
+        self.assertIn("aistudio.google.com/apikey", "\n".join(m.value for m in at.markdown))
+
+    def test_a_working_key_is_kept_for_the_session_only(self):
+        at, calls = self.run_page(click=[("API key", "AIza-test"), ("Use this key", None)])
+        self.assertFalse(at.exception, at.exception)
+        self.assertEqual(at.session_state["ai"]["key"], "AIza-test")
+        self.assertIn(("POST", "/api/ai/check", {"ai_provider": "gemini", "ai_key": "AIza-test", "ai_model": "gemini-3.8-flash"}), calls)
+        self.assertIn("Connected: Google Gemini", "\n".join(s.value for s in at.success))
+
+    def test_a_bad_key_says_why(self):
+        at, _ = self.run_page(check_ok=False, click=[("API key", "nope"), ("Use this key", None)])
+        self.assertNotIn("ai", at.session_state)
+        self.assertIn("API key not valid", "\n".join(e.value for e in at.error))
+
+    def test_without_a_key_notes_are_blocked(self):
+        at, _ = self.run_page(board="w1")
+        self.assertFalse(at.exception, at.exception)
+        self.assertTrue(next(b for b in at.button if b.label == "Add").disabled)
+        self.assertIn("Connect your AI", "\n".join(m.value for m in at.markdown))
+
+    def test_notes_carry_the_visitors_key(self):
+        key = {"provider": "gemini", "key": "AIza-test", "model": "gemini-3.8-flash", "label": "Google Gemini"}
+        at, calls = self.run_page(board="w1", key=key, text="- Sam: write the agenda by Friday", click=("Add", None))
+        self.assertFalse(at.exception, at.exception)
+        sent = [d for m, p, d in calls if m == "POST" and p == "/api/workspaces/w1/sources"]
+        self.assertEqual(len(sent), 1)
+        self.assertEqual({k: sent[0][k] for k in ("ai_provider", "ai_key", "ai_model")},
+                         {"ai_provider": "gemini", "ai_key": "AIza-test", "ai_model": "gemini-3.8-flash"})
+
+
 if __name__ == "__main__":
     unittest.main()

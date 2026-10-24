@@ -1,7 +1,12 @@
 /**
- * Local runtime clients. Only localhost endpoints: Ollama native API, or any
+ * Model runtime clients. By default only localhost endpoints: Ollama's native API, or any
  * OpenAI-compatible local server (LM Studio, llama.cpp server, LocalAI).
+ *
+ * Bring your own key: when a visitor of a hosted demo supplies an AI key, the analysis of their notes
+ * runs inside withAi(), and every model call in it goes to that provider instead (see createRuntime).
+ * Providers are a fixed list, so a visitor can't point the server at an address of their choosing.
  */
+import { AsyncLocalStorage } from 'node:async_hooks'
 
 export interface ChatRequest {
   system: string
@@ -21,15 +26,27 @@ export interface LocalRuntime {
 
 const TIMEOUT_MS = Number(process.env.LOCAL_AI_TIMEOUT_MS ?? 600_000)
 
-async function post(url: string, body: unknown) {
+class HttpError extends Error {
+  constructor(message: string, readonly status: number) { super(message) }
+}
+
+async function post(url: string, body: unknown, headers: Record<string, string> = {}) {
   const res = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...headers },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(TIMEOUT_MS),
   })
-  if (!res.ok) throw new Error(`${url} -> ${res.status} ${await res.text()}`)
+  if (!res.ok) throw new HttpError(`${url} -> ${res.status} ${(await res.text()).slice(0, 600)}`, res.status)
   return res.json()
+}
+
+/** The image type from its first bytes, for the data: URL (providers check it matches). */
+export function imageMime(base64: string) {
+  if (base64.startsWith('iVBOR')) return 'image/png'
+  if (base64.startsWith('UklGR')) return 'image/webp'
+  if (base64.startsWith('R0lGOD')) return 'image/gif'
+  return 'image/jpeg'
 }
 
 /**
@@ -173,32 +190,83 @@ export function ollamaRuntime(): LocalRuntime {
   }
 }
 
-// ---------------- OpenAI-compatible local server (LM Studio etc.) ----------------
+// ---------------- OpenAI-compatible server (LM Studio etc., or a hosted provider with a visitor's key) ----------------
 
-export function openAiCompatRuntime(): LocalRuntime {
-  const base = (process.env.LOCAL_AI_BASE_URL ?? 'http://localhost:1234/v1').replace(/\/$/, '')
-  const model = process.env.LOCAL_AI_MODEL
-  const visionModel = process.env.LOCAL_AI_VISION_MODEL || model
+export interface OpenAiCompatConfig { name: string; baseUrl: string; apiKey?: string; model?: string; visionModel?: string }
+
+export function openAiCompatRuntime(cfg?: OpenAiCompatConfig): LocalRuntime {
+  const base = (cfg?.baseUrl ?? process.env.LOCAL_AI_BASE_URL ?? 'http://localhost:1234/v1').replace(/\/$/, '')
+  const model = cfg ? cfg.model : process.env.LOCAL_AI_MODEL
+  const visionModel = (cfg ? cfg.visionModel : process.env.LOCAL_AI_VISION_MODEL) || model
+  const auth: Record<string, string> = cfg?.apiKey ? { Authorization: `Bearer ${cfg.apiKey}` } : {}
   return {
-    name: process.env.LOCAL_AI_PROVIDER ?? 'lmstudio',
-    reachable: () => fetch(`${base}/models`, { signal: AbortSignal.timeout(3000) }).then((r) => r.ok, () => false),
+    name: cfg?.name ?? process.env.LOCAL_AI_PROVIDER ?? 'lmstudio',
+    reachable: () => fetch(`${base}/models`, { headers: auth, signal: AbortSignal.timeout(5000) }).then((r) => r.ok, () => false),
     textModel: async () => model,
     visionModel: async () => visionModel,
     async chat(req) {
       const content: unknown[] = [{ type: 'text', text: req.user }]
-      for (const img of req.images ?? []) content.push({ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${img}` } })
-      const json = (await post(`${base}/chat/completions`, {
+      for (const img of req.images ?? []) content.push({ type: 'image_url', image_url: { url: `data:${imageMime(img)};base64,${img}` } })
+      const body = {
         model: req.vision ? visionModel : model,
         temperature: 0.1,
-        response_format: { type: 'json_schema', json_schema: { name: 'output', schema: req.jsonSchema } },
         messages: [{ role: 'system', content: req.system }, { role: 'user', content }],
-      })) as { choices: { message: { content: string } }[] }
-      return json.choices[0].message.content
+      }
+      let json: { choices: { message: { content: string | null } }[] }
+      try {
+        json = await post(`${base}/chat/completions`, {
+          ...body, response_format: { type: 'json_schema', json_schema: { name: 'output', schema: req.jsonSchema } },
+        }, auth)
+      } catch (e) {
+        // Some providers/models refuse a full JSON schema but take plain JSON mode; the reply is validated anyway.
+        if (!(e instanceof HttpError) || e.status !== 400) throw e
+        json = await post(`${base}/chat/completions`, { ...body, response_format: { type: 'json_object' } }, auth)
+      }
+      return json.choices?.[0]?.message?.content ?? ''
     },
   }
 }
 
+// ---------------- bring your own key ----------------
+
+/** Hosted providers a visitor can use with their own key. Fixed addresses: never taken from the request. */
+export const AI_PROVIDERS: Record<string, { label: string; baseUrl: string; defaultModel?: string; keyUrl: string }> = {
+  gemini: { label: 'Google Gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', defaultModel: 'gemini-3.8-flash', keyUrl: 'https://aistudio.google.com/apikey' },
+  openai: { label: 'OpenAI', baseUrl: 'https://api.openai.com/v1', keyUrl: 'https://platform.openai.com/api-keys' },
+  openrouter: { label: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', keyUrl: 'https://openrouter.ai/keys' },
+  groq: { label: 'Groq', baseUrl: 'https://api.groq.com/openai/v1', keyUrl: 'https://console.groq.com/keys' },
+}
+// For tests only: the local Ollama through its OpenAI-compatible endpoint, as if it were a hosted provider.
+if (process.env.ORGMAP_TEST_PROVIDER === 'true') {
+  AI_PROVIDERS['test-ollama'] = { label: 'Test: local Ollama (OpenAI API)', baseUrl: process.env.ORGMAP_TEST_PROVIDER_URL ?? 'http://localhost:11434/v1', defaultModel: 'qwen2.5vl:7b', keyUrl: '' }
+}
+
+export interface AiKey { provider: string; apiKey: string; model?: string }
+
+/** A visitor's key as a runtime, or why it can't be used. */
+export function keyRuntime(k: AiKey): LocalRuntime {
+  const p = AI_PROVIDERS[k.provider]
+  if (!p) throw new Error(`Unknown AI provider "${k.provider}"`)
+  const model = k.model?.trim() || p.defaultModel
+  if (!model) throw new Error(`Choose a model for ${p.label}`)
+  if (!k.apiKey?.trim()) throw new Error(`Add your ${p.label} API key`)
+  return openAiCompatRuntime({ name: k.provider, baseUrl: p.baseUrl, apiKey: k.apiKey.trim(), model })
+}
+
+const visitorKey = new AsyncLocalStorage<LocalRuntime>()
+/** Run fn with every model call in it going to the visitor's provider and key. */
+export const withAi = <T>(k: AiKey, fn: () => Promise<T>) => visitorKey.run(keyRuntime(k), fn)
+
+/** The configured local runtime, or the visitor's provider while inside withAi(). */
 export function createRuntime(): LocalRuntime {
   const p = (process.env.LOCAL_AI_PROVIDER ?? 'ollama').toLowerCase()
-  return p === 'ollama' ? ollamaRuntime() : openAiCompatRuntime()
+  const local = p === 'ollama' ? ollamaRuntime() : openAiCompatRuntime()
+  const current = () => visitorKey.getStore() ?? local
+  return {
+    get name() { return current().name },
+    reachable: () => current().reachable(),
+    textModel: () => current().textModel(),
+    visionModel: () => current().visionModel(),
+    chat: (req) => current().chat(req),
+  }
 }

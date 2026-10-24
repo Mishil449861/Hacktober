@@ -2,3 +2,5 @@ streamlit>=1.37
 requests>=2.31
 pandas>=2.0
 altair>=5.0
+# Node.js 20+ for the OrgMap server, for hosts without one (Streamlit Community Cloud): see server_boot.py
+nodejs-wheel>=22
