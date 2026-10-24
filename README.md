@@ -4,7 +4,7 @@
 
 Type what was said in a meeting, or photograph the whiteboard. OrgMap AI works out who does what by when, what was decided and who reports to whom, and keeps that picture up to date as new notes and photos arrive.
 
-- **The AI runs on your laptop.** A local model in [Ollama](https://ollama.com) plus tesseract.js OCR. No OpenAI, Anthropic or Gemini keys; no notes are sent to a hosted LLM.
+- **The AI runs on your laptop.** A local model in [Ollama](https://ollama.com) plus tesseract.js OCR. No OpenAI, Anthropic or Gemini keys; no notes are sent to a hosted LLM. The [public online demo](#online-demo-streamlit-community-cloud) has no AI of its own, so each visitor connects their own key instead (Google Gemini's is free).
 - **Cloudinary handles the photos.** Signed upload, storage, CDN delivery, and an on-the-fly copy that is resized, contrast-improved and sharpened for the AI to read. See [Where Cloudinary is used](#where-cloudinary-is-used).
 - **It updates, it doesn't start over.** "Ben has booked the venue. Done." ticks off the existing to-do. A later photo adds new ones. Nothing is regenerated from scratch.
 
@@ -45,7 +45,35 @@ The page runs in presentation mode ([.streamlit/config.toml](.streamlit/config.t
 
 ### Sharing it publicly
 
-The AI runs on this laptop, so the page can't be hosted on its own (on Streamlit Community Cloud, for example, it would have no server or model to talk to). Instead, [Tailscale Funnel](https://tailscale.com/kb/1223/funnel) (free) gives the laptop's demo page a permanent public address:
+Two ways, both free:
+
+| | Online demo (Streamlit Community Cloud) | From this laptop (Tailscale Funnel) |
+|---|---|---|
+| Works when | always (wakes in about a minute after 12 quiet hours) | only while the laptop is on and running the demo |
+| AI | each visitor's own API key (Gemini, OpenAI, OpenRouter, Groq) | the local model, no key needed |
+| Best for | a submission link judges open at any time | live demos, fully local |
+
+### Online demo (Streamlit Community Cloud)
+
+The page starts the OrgMap server itself inside Streamlit's container (Node.js comes from the `nodejs-wheel` package), and asks each visitor to connect their own AI:
+
+1. **Connect your AI:** pick a provider, paste an API key, press **Use this key**. The key is checked with a tiny request, kept in that browser tab's session, sent only with that visitor's own notes and only to that provider's fixed address, and never saved or logged (it's scrubbed from error messages). A free Google Gemini key takes a minute at [aistudio.google.com/apikey](https://aistudio.google.com/apikey), no payment details needed.
+2. **Start a board**, exactly as on the laptop.
+
+Boards survive the app being restarted on a fresh disk (after 12 hours asleep, or on redeploy): the server keeps a **private** backup of the database in your Cloudinary account (a raw file downloadable only with your API secret, never by URL) and restores it on startup. Boards untouched for 30 days are deleted, with their photos.
+
+**Deploy (one time, about 5 minutes):**
+
+1. Sign in at [share.streamlit.io](https://share.streamlit.io) with your GitHub account.
+2. **Create app** → **Deploy a public app from GitHub**: repository `Mishil449861/Hacktober`, branch `main`, main file path `demo/app.py`. Pick a custom address under **App URL** (e.g. `orgmap-ai` → `https://orgmap-ai.streamlit.app`).
+3. **Advanced settings**: Python 3.12, and paste the secrets from [.streamlit/secrets.toml.example](.streamlit/secrets.toml.example) with your Cloudinary values (`ORGMAP_HOSTED = "true"` is what switches on visitor keys and the self-started server).
+4. **Deploy.** The first visit installs the server's packages and takes 2 to 3 minutes; later wake-ups about a minute.
+
+Limits: up to 2.7 GB of memory; one AI request at a time per app (visitors queue); speed depends on the visitor's provider (Gemini: a few seconds per note).
+
+### From this laptop (Tailscale Funnel)
+
+The page runs on this laptop with its local AI. [Tailscale Funnel](https://tailscale.com/kb/1223/funnel) (free) gives it a permanent public address:
 
 **https://orgmap.tailb4b076.ts.net**
 
@@ -65,6 +93,7 @@ After that, Funnel stays on, including after a restart. To share the demo, just 
 - No Tailscale? A free Cloudflare quick tunnel also works, with a random address that changes on every restart: `winget install --id Cloudflare.cloudflared`, then `& "C:\Program Files (x86)\cloudflared\cloudflared.exe" tunnel --url http://localhost:8501`.
 - **One AI for everyone.** Notes from several visitors are read one at a time, so at busy moments a step waits its turn (photos take about a minute each).
 - **No login.** Anyone with a board's link can change it, and visitors' photos go to your Cloudinary account. Boards stay until someone deletes them: tidy up with `DELETE /api/workspaces/<id>`, or remove `data/db.json` while the server is stopped to clear everything.
+- **Leaving it unattended** (e.g. while judges test it): `powershell -ExecutionPolicy Bypass -File deploy\windows\install-keep-alive.ps1` adds a task that checks every 5 minutes, and at sign-in, that the model, server, demo page and public link are up, and restarts what isn't (log: `data\logs\keep-alive.log`; undo with `-Remove`). Keep the laptop plugged in: on battery Windows sleeps it after an hour. After a reboot someone has to sign in for the demo to start again.
 
 ---
 
@@ -266,18 +295,23 @@ All in `.env` (see [.env.example](.env.example)):
 | `OCR_ENABLED` | `true` | |
 | `ORGMAP_DEBUG` | blank | extraction traces (`data/debug/`, see [Testing](#testing)); blank = on in development, `false` = off |
 | `PORT` | `8787` | |
+| `HOST` | all interfaces | `127.0.0.1` keeps the API off the network (the cloud setups do this) |
 | `DATA_DIR` | `data` | where projects are stored (`data/db.json`) |
 | `CLOUDINARY_DISABLED` | | `true` = ignore the Cloudinary keys and store photos locally |
+| `ORGMAP_HOSTED` | | `true` (online demo): the page starts the server itself and visitors bring their own AI key |
+| `ORGMAP_DB_BACKUP` | | `cloudinary` = keep a private backup of the boards in Cloudinary, restored on startup (on by default when hosted) |
+| `BOARD_MAX_AGE_DAYS` | | delete boards untouched for this many days (hosted default: 30) |
 
 ---
 
 ## Testing
 
 ```bash
-npm test                 # 54 unit tests: the notes parser, handwritten lists and ownership, crossed-out items,
-                         # name matching, validation, relationship fixes, status history, views (no model needed)
-npm run test:demo        # 29 tests of the demo page: the to-do list (including to-dos with no date, owner or
-                         # status), editing it, boards (start screen, private link, a deleted board)
+npm test                 # 60 unit tests: the notes parser, handwritten lists and ownership, crossed-out items,
+                         # name matching, validation, relationship fixes, status history, views, visitors'
+                         # AI keys (each key only for its own notes, fixed provider addresses) (no model needed)
+npm run test:demo        # 34 tests of the demo page: the to-do list (including to-dos with no date, owner or
+                         # status), editing it, boards, and the online demo's key flow
 npm run test:eval        # 6 extraction cases: text, name matching, org chart, process flow, diagram + notes
 npm run test:scenario    # a 4-meeting, 2-photo project with 13 checks on the result
 npm run test:handwritten # two handwritten photos and two typed notes, first meeting then follow-up
@@ -298,7 +332,7 @@ npm run test:eval; npm run test:scenario; npm run test:handwritten
 
 Add `$env:CLOUDINARY_DISABLED='true'` in terminal 1 to keep test photos out of Cloudinary. Run one test server at a time: two servers analyzing at once can exhaust 16 GB of RAM.
 
-Last full run (Oct 18, 2026, `qwen2.5vl:7b`): unit 54/54, demo 18/18, eval 6/6 (node and edge recall 100%), scenario 13/13, handwritten photos 36/36 (3 runs in a row) and typed 41/41. Boards (Oct 23): demo 29/29; with the model, two visitors' boards stayed separate, every kind of edit was saved, and the full example passed on a fresh board.
+Last full run (Oct 18, 2026, `qwen2.5vl:7b`): unit 54/54, demo 18/18, eval 6/6 (node and edge recall 100%), scenario 13/13, handwritten photos 36/36 (3 runs in a row) and typed 41/41. Boards (Oct 23): demo 29/29; with the model, two visitors' boards stayed separate, every kind of edit was saved, and the full example passed on a fresh board. Online demo (Oct 24), rehearsed on a fresh clone with no local AI and the page starting the server with `nodejs-wheel`'s Node: every check of the two-visitor test and the full example (including the photo and the Cloudinary panel) passed with visitor keys, and a board survived a wiped disk via the Cloudinary backup. The visitor-key path was tested against an OpenAI-compatible endpoint (Ollama's), not against Gemini itself.
 
 **When a to-do comes out wrong**, look at the source's extraction trace: `GET /api/sources/<id>/trace` (also saved as `data/debug/<id>.json`; on by default in development, `ORGMAP_DEBUG=false` turns it off). It lists, in order, the OCR text, the model's raw reply and its validated form (including the vision transcript), what the notes parser read, the cleaned extraction, the merge report and the resulting to-dos. The first stage where the to-do is wrong is the stage to fix: vision (transcript misread), parser, cleanup, or merge. `npm run test:handwritten` prints these stages for each photo.
 
@@ -309,9 +343,11 @@ Last full run (Oct 18, 2026, `qwen2.5vl:7b`): unit 54/54, demo 18/18, eval 6/6 (
 ```
 .streamlit/
   config.toml         presentation mode for the demo page
+  secrets.toml.example  settings for the online demo (paste into Streamlit Cloud; never commit secrets.toml)
 demo/
-  app.py              the demo page (Streamlit): start screen, one board per visitor
+  app.py              the demo page (Streamlit): start screen, one board per visitor, visitors' AI keys
   client.py           the page's calls to the server, including applying to-do edits
+  server_boot.py      starts the server next to the page on the online demo (Node.js from nodejs-wheel)
   todos.py            the to-do table and what an edit changes, tolerant of missing fields (tests: test_todos.py)
   whiteboard.png      the sample photo for step 3 (source: whiteboard.html)
 server/
@@ -320,7 +356,8 @@ server/
   inbox.ts            Cloudinary inbox watcher
   capture.ts          phone capture page (Cloudinary Upload Widget)
   lib/ai/provider.ts  local model abstraction: analyzeImage / analyzeText / reconcileGraph
-  lib/ai/runtimes.ts  Ollama and OpenAI-compatible local clients, model auto-selection
+  lib/ai/runtimes.ts  Ollama and OpenAI-compatible clients, model auto-selection, visitors' keys (withAi)
+  backup.ts           private Cloudinary backup of the boards (online demo)
   lib/ai/ocr.ts       tesseract.js OCR
   lib/minutes.ts      deterministic notes parser
   graph/reconcile.ts  merging, duplicate detection, status history
@@ -328,6 +365,8 @@ server/
   store.ts            JSON-file storage (data/db.json)
 src/                  graph editor (React + React Flow, uses @cloudinary/react)
 tests/                unit tests, eval cases, fixtures
+deploy/cloud/         installer for an Ubuntu server of its own (Ollama on CPU; slow on free hardware)
+deploy/windows/       keep-alive task for leaving the laptop demo running unattended
 start-demo.ps1        one-command launcher (Windows)
 ```
 

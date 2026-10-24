@@ -159,6 +159,15 @@ def own_photo(key: str) -> tuple[str, bytes] | None:
 # ------------------------------------------------------------------ page
 st.set_page_config(page_title="OrgMap AI", layout="centered")
 
+# Streamlit Community Cloud keeps the app's settings in st.secrets. Copy the plain ones into the environment,
+# where this page and the server it starts (server_boot.py) read them. No secrets file (the laptop): nothing to do.
+try:
+    for _k, _v in st.secrets.items():
+        if isinstance(_v, (str, int, float, bool)):
+            os.environ.setdefault(_k, str(_v))
+except Exception:  # noqa: BLE001
+    pass
+
 HOSTED = os.environ.get("ORGMAP_HOSTED", "").strip().lower() in ("1", "true", "yes")
 
 
