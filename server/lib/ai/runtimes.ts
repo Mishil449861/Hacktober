@@ -192,7 +192,11 @@ export function ollamaRuntime(): LocalRuntime {
 
 // ---------------- OpenAI-compatible server (LM Studio etc., or a hosted provider with a visitor's key) ----------------
 
-export interface OpenAiCompatConfig { name: string; baseUrl: string; apiKey?: string; model?: string; visionModel?: string }
+export interface OpenAiCompatConfig {
+  name: string; baseUrl: string; apiKey?: string; model?: string; visionModel?: string
+  /** Provider-specific request fields (e.g. Gemini's reasoning_effort); dropped if the provider refuses them. */
+  extraBody?: Record<string, unknown>
+}
 
 export function openAiCompatRuntime(cfg?: OpenAiCompatConfig): LocalRuntime {
   const base = (cfg?.baseUrl ?? process.env.LOCAL_AI_BASE_URL ?? 'http://localhost:1234/v1').replace(/\/$/, '')
@@ -212,17 +216,22 @@ export function openAiCompatRuntime(cfg?: OpenAiCompatConfig): LocalRuntime {
         temperature: 0.1,
         messages: [{ role: 'system', content: req.system }, { role: 'user', content }],
       }
-      let json: { choices: { message: { content: string | null } }[] }
-      try {
-        json = await post(`${base}/chat/completions`, {
-          ...body, response_format: { type: 'json_schema', json_schema: { name: 'output', schema: req.jsonSchema } },
-        }, auth)
-      } catch (e) {
-        // Some providers/models refuse a full JSON schema but take plain JSON mode; the reply is validated anyway.
-        if (!(e instanceof HttpError) || e.status !== 400) throw e
-        json = await post(`${base}/chat/completions`, { ...body, response_format: { type: 'json_object' } }, auth)
+      const schema = { type: 'json_schema', json_schema: { name: 'output', schema: req.jsonSchema } }
+      // Most specific first. A 400 means the provider/model refused something in the request: retry without the
+      // provider-specific extras, then with plain JSON mode instead of the schema (the reply is validated anyway).
+      const attempts = [
+        ...(cfg?.extraBody ? [{ ...body, ...cfg.extraBody, response_format: schema }] : []),
+        { ...body, response_format: schema },
+        { ...body, response_format: { type: 'json_object' } },
+      ]
+      for (let i = 0; ; i++) {
+        try {
+          const json = (await post(`${base}/chat/completions`, attempts[i], auth)) as { choices?: { message?: { content?: string | null } }[] }
+          return json.choices?.[0]?.message?.content ?? ''
+        } catch (e) {
+          if (!(e instanceof HttpError) || e.status !== 400 || i === attempts.length - 1) throw e
+        }
       }
-      return json.choices?.[0]?.message?.content ?? ''
     },
   }
 }
@@ -230,8 +239,9 @@ export function openAiCompatRuntime(cfg?: OpenAiCompatConfig): LocalRuntime {
 // ---------------- bring your own key ----------------
 
 /** Hosted providers a visitor can use with their own key. Fixed addresses: never taken from the request. */
-export const AI_PROVIDERS: Record<string, { label: string; baseUrl: string; defaultModel?: string; keyUrl: string }> = {
-  gemini: { label: 'Google Gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', defaultModel: 'gemini-3.8-flash', keyUrl: 'https://aistudio.google.com/apikey' },
+export const AI_PROVIDERS: Record<string, { label: string; baseUrl: string; defaultModel?: string; keyUrl: string; extraBody?: Record<string, unknown> }> = {
+  // Gemini 3 models always "think" before answering; low effort keeps a note to seconds, not a minute.
+  gemini: { label: 'Google Gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', defaultModel: 'gemini-3.8-flash', keyUrl: 'https://aistudio.google.com/apikey', extraBody: { reasoning_effort: 'low' } },
   openai: { label: 'OpenAI', baseUrl: 'https://api.openai.com/v1', keyUrl: 'https://platform.openai.com/api-keys' },
   openrouter: { label: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', keyUrl: 'https://openrouter.ai/keys' },
   groq: { label: 'Groq', baseUrl: 'https://api.groq.com/openai/v1', keyUrl: 'https://console.groq.com/keys' },
@@ -250,7 +260,48 @@ export function keyRuntime(k: AiKey): LocalRuntime {
   const model = k.model?.trim() || p.defaultModel
   if (!model) throw new Error(`Choose a model for ${p.label}`)
   if (!k.apiKey?.trim()) throw new Error(`Add your ${p.label} API key`)
-  return openAiCompatRuntime({ name: k.provider, baseUrl: p.baseUrl, apiKey: k.apiKey.trim(), model })
+  return openAiCompatRuntime({ name: k.provider, baseUrl: p.baseUrl, apiKey: k.apiKey.trim(), model, extraBody: p.extraBody })
+}
+
+/** The human part of a provider's error body ({"error": {"message": ...}}, or a list of those), else the text. */
+export function providerMessage(text: string): string {
+  try {
+    const j = JSON.parse(text)
+    const e = (Array.isArray(j) ? j[0] : j)?.error
+    const msg = typeof e === 'string' ? e : e?.message
+    if (msg) return String(msg).slice(0, 300)
+  } catch { /* not JSON */ }
+  return text.replace(/\s+/g, ' ').trim().slice(0, 300)
+}
+
+/**
+ * Is this key good for this model? Asks the provider which models the key can use: no generation, so it
+ * answers in about a second (a test chat with a "thinking" model can take a minute). Falls back to a tiny chat
+ * when the provider has no model list. Resolves to the model name; rejects with what the provider said.
+ */
+export async function checkKey(k: AiKey, timeoutMs = 45_000): Promise<string> {
+  const runtime = keyRuntime(k)
+  const p = AI_PROVIDERS[k.provider]
+  const model = (await runtime.textModel())!
+  const res = await fetch(`${p.baseUrl}/models`, { headers: { Authorization: `Bearer ${k.apiKey.trim()}` }, signal: AbortSignal.timeout(timeoutMs) })
+    .catch((e: Error) => { throw new Error(`${p.label} didn't answer (${e.name === 'TimeoutError' ? `nothing within ${timeoutMs / 1000} s` : e.message})`) })
+  if (res.status === 401 || res.status === 403 || res.status === 400) {
+    throw new Error(`${p.label} rejected the key: ${providerMessage(await res.text())}`)
+  }
+  if (res.ok) {
+    const ids = (((await res.json()) as { data?: { id?: string }[] }).data ?? []).map((m) => String(m.id ?? '').replace(/^models\//, ''))
+    if (ids.length && !ids.includes(model)) {
+      const close = ids.filter((id) => id.includes(model.split('-')[0])).slice(0, 6)
+      throw new Error(`the key works, but it can't use the model "${model}"${close.length ? `. Models it can use include: ${close.join(', ')}` : ''}`)
+    }
+    return model
+  }
+  // No usable model list: try the smallest possible chat instead.
+  await Promise.race([
+    runtime.chat({ system: 'Reply with JSON only.', user: 'Reply with {"ok": true}.', jsonSchema: { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'] } }),
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`${p.label} didn't answer within ${timeoutMs / 1000} s`)), timeoutMs)),
+  ])
+  return model
 }
 
 const visitorKey = new AsyncLocalStorage<LocalRuntime>()

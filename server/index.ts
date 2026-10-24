@@ -7,7 +7,7 @@ import multer from 'multer'
 import { NODE_STATUSES, NODE_TYPES, RELATIONSHIP_TYPES, type GraphEdge, type Source, type SystemStatus } from '../src/shared/schema.ts'
 import { analysisUrl, cloudName, cloudinaryEnabled, deleteImage, previewUrl, thumbUrl, uploadImage } from './cloudinary.ts'
 import { analyzeImage, analyzeText, runtime, systemInfo, type Trace } from './lib/ai/provider.ts'
-import { AI_PROVIDERS, keyRuntime, withAi, type AiKey } from './lib/ai/runtimes.ts'
+import { AI_PROVIDERS, checkKey, keyRuntime, withAi, type AiKey } from './lib/ai/runtimes.ts'
 import { restoreBackup, startBackup } from './backup.ts'
 import { deriveState, mergeExtraction, mergeNodes, retractHistory } from './graph/reconcile.ts'
 import { buildReport, buildViews } from './views.ts'
@@ -77,19 +77,20 @@ function keyFrom(body: Record<string, unknown> | undefined): AiKey | undefined {
 /** Never echo a key back: providers sometimes quote it in error messages. */
 const redact = (msg: string, k?: AiKey) => (k ? msg.split(k.apiKey).join('[your key]') : msg)
 
-/** Try a key with a tiny request, so the page can say "key works" before any notes are sent. */
+/** Check a key (and that it can use the chosen model) before any notes are sent. Answers within ~45 s at most. */
 app.post('/api/ai/check', wrap(async (req, res) => {
   let k: AiKey | undefined
+  const t0 = Date.now()
   try {
     k = keyFrom(req.body)
     if (!k) return void res.status(400).json({ ok: false, error: 'Add an API key' })
-    const reply = await withAi(k, () => runtime.chat({
-      system: 'Reply with JSON only.', user: 'Reply with {"ok": true}.',
-      jsonSchema: { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'] },
-    }))
-    res.json({ ok: true, model: await keyRuntime(k).textModel(), reply: reply.slice(0, 80) })
+    const model = await checkKey(k)
+    console.log(`[ai] key check ${k.provider}/${model}: ok in ${Date.now() - t0} ms`)
+    res.json({ ok: true, model })
   } catch (e) {
-    res.json({ ok: false, error: redact((e as Error).message, k) })
+    const error = redact((e as Error).message, k)
+    console.log(`[ai] key check ${k?.provider ?? '?'}: failed in ${Date.now() - t0} ms: ${error}`)
+    res.json({ ok: false, error })
   }
 }))
 

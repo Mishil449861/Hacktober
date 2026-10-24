@@ -25,6 +25,7 @@ import time
 from pathlib import Path
 
 import pandas as pd
+import requests
 import streamlit as st
 
 from client import API, api, apply_edits
@@ -67,7 +68,11 @@ def board_link(board_id: str, example: bool) -> str:
 
 
 def error_text(e: Exception) -> str:
-    """The server's own message from client.api's "<status>: <body>" error."""
+    """The server's own message from client.api's "<status>: <body>" error; a plain sentence for network trouble."""
+    if isinstance(e, requests.Timeout):
+        return "the OrgMap server took too long to answer. Try again in a minute."
+    if isinstance(e, requests.RequestException):
+        return "the OrgMap server couldn't be reached. Refresh the page in a minute."
     body = str(e).split(": ", 1)[-1]
     try:
         return str(json.loads(body).get("error") or body)
@@ -95,17 +100,23 @@ def read(ws_id: str, date: dt.date, text: str = "", photo: tuple | None = None) 
                 data={"text": text, "name": f"Notes {stamp}", "date": date.isoformat(), **ai_fields()})
         if photo:
             api("POST", f"/api/workspaces/{ws_id}/sources", data={"date": date.isoformat(), **ai_fields()}, files={"files": photo})
-    except RuntimeError as e:
+    except Exception as e:  # noqa: BLE001  (server said no, timed out, or is restarting)
         st.error(f"Couldn't add that: {error_text(e)}")
         return False
     where = "with your AI key" if ai_key() else "on this laptop"
     with st.spinner(f"Reading {where}… usually 15 to 40 seconds, about a minute for a photo. "
                     "If other people are adding notes at the same time, yours waits its turn."):
-        while True:
+        deadline = time.time() + 600
+        while time.time() < deadline:
             time.sleep(1.5)
-            s = api("GET", f"/api/workspaces/{ws_id}")
+            try:
+                s = api("GET", f"/api/workspaces/{ws_id}")
+            except Exception:  # noqa: BLE001  (one slow answer while the server is busy: just ask again)
+                continue
             if not any(x["status"] in ("ANALYZING", "PENDING") for x in s["sources"]):
                 return True
+    st.warning("Still reading after 10 minutes. It will appear on the board when done: refresh the page later.")
+    return False
 
 
 def ai_panel(providers: list[dict], required: bool) -> None:
@@ -132,7 +143,7 @@ def ai_panel(providers: list[dict], required: bool) -> None:
         with st.spinner("Checking the key…"):
             try:
                 r = api("POST", "/api/ai/check", data={"ai_provider": provider, "ai_key": key.strip(), "ai_model": model.strip()})
-            except RuntimeError as e:
+            except Exception as e:  # noqa: BLE001  (never show a raw traceback for a key check)
                 r = {"ok": False, "error": error_text(e)}
         if r.get("ok"):
             st.session_state["ai"] = {"provider": provider, "key": key.strip(), "model": model.strip(), "label": p["label"]}

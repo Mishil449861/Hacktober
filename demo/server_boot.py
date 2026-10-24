@@ -5,12 +5,16 @@ starts the Node.js server itself, inside the same container. Free of Streamlit, 
 
 Node.js: one already installed (20+), else the one from the nodejs-wheel package in requirements.txt
 (Community Cloud's Debian has none recent enough). ORGMAP_NODE=wheel forces the packaged one.
+
+The server's output goes to the page's own output (on Community Cloud: "Manage app" > logs, prefixed
+"[orgmap]") and to <DATA_DIR>/server.log.
 """
 from __future__ import annotations
 
 import os
 import shutil
 import subprocess
+import sys
 import threading
 import time
 import urllib.request
@@ -69,7 +73,25 @@ def _npm_cli(node: str) -> Path | None:
     return next((c for c in candidates if c.exists()), None)
 
 
-def ensure_packages(node: str, log) -> None:
+class _Log:
+    """Writes each line to the log file and to this process's output (Community Cloud shows the latter)."""
+
+    def __init__(self, path: Path):
+        self.file = open(path, "a", buffering=1, encoding="utf-8")  # noqa: SIM115 (lives as long as the server)
+        self.name = str(path)
+
+    def write(self, text: str) -> None:
+        self.file.write(text)
+        for line in text.splitlines():
+            print(f"[orgmap] {line}", file=sys.stderr, flush=True)
+
+    def pump(self, stream) -> None:
+        """Copy a child process's output, line by line, until it closes."""
+        for raw in iter(stream.readline, b""):
+            self.write(raw.decode("utf-8", "replace"))
+
+
+def ensure_packages(node: str, log: _Log) -> None:
     """Install the server's Node packages (runtime ones only) if they aren't there yet."""
     if (ROOT / "node_modules/tsx/package.json").exists() and (ROOT / "node_modules/express/package.json").exists():
         return
@@ -77,11 +99,11 @@ def ensure_packages(node: str, log) -> None:
     if not npm:
         raise RuntimeError("npm was not found next to Node.js")
     log.write(f"[boot] npm ci --omit=dev in {ROOT}\n")
-    log.flush()
-    r = subprocess.run([node, str(npm), "ci", "--omit=dev", "--no-audit", "--no-fund"], cwd=ROOT, stdout=log,
-                       stderr=subprocess.STDOUT, timeout=900)
+    r = subprocess.run([node, str(npm), "ci", "--omit=dev", "--no-audit", "--no-fund"], cwd=ROOT,
+                       capture_output=True, timeout=900)
+    log.write((r.stdout + r.stderr).decode("utf-8", "replace")[-4000:])
     if r.returncode != 0:
-        raise RuntimeError(f"npm ci failed (exit {r.returncode}); see {log.name}")
+        raise RuntimeError(f"npm ci failed (exit {r.returncode}); see the app's logs")
 
 
 def server_env(api: str) -> dict[str, str]:
@@ -109,16 +131,17 @@ def ensure_server(api: str, wait_s: int = 300) -> None:
         node = node_binary()
         if not node:
             raise RuntimeError("Node.js 20+ was not found (add nodejs-wheel to requirements.txt)")
-        log = open(data_dir() / "server.log", "a", buffering=1, encoding="utf-8")  # noqa: SIM115 (kept open for the child)
-        log.write(f"\n[boot] {time.strftime('%Y-%m-%d %H:%M:%S')} starting the server with {node}\n")
+        log = _Log(data_dir() / "server.log")
+        log.write(f"[boot] {time.strftime('%Y-%m-%d %H:%M:%S')} starting the server with {node}\n")
         ensure_packages(node, log)
         proc = subprocess.Popen([node, "--import", "tsx", "server/index.ts"], cwd=ROOT, env=server_env(api),
-                                stdout=log, stderr=subprocess.STDOUT, start_new_session=(os.name != "nt"))
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=(os.name != "nt"))
+        threading.Thread(target=log.pump, args=(proc.stdout,), daemon=True, name="orgmap-server-log").start()
         deadline = time.time() + wait_s
         while time.time() < deadline:
             if healthy(api):
                 return
             if proc.poll() is not None:
-                raise RuntimeError(f"the server stopped (exit {proc.returncode}); see {log.name}")
+                raise RuntimeError(f"the server stopped (exit {proc.returncode}); see the app's logs")
             time.sleep(2)
-        raise RuntimeError(f"the server didn't answer within {wait_s} s; see {log.name}")
+        raise RuntimeError(f"the server didn't answer within {wait_s} s; see the app's logs")
