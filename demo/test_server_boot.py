@@ -41,6 +41,24 @@ class ReplaceIfOutdated(unittest.TestCase):
         self.assertFalse(replaced)
         kill.assert_not_called()
 
+    def test_a_server_from_before_fingerprints_is_found_by_its_command_line(self):
+        # Deployed before codeVersion/pid existed: the status has neither, so look in the container's processes.
+        with mock.patch.object(server_boot, "_servers_in_this_container", return_value=[777]):
+            replaced, kill, ensure = self.run_it({"reachable": False})
+        self.assertTrue(replaced)
+        self.assertEqual(kill.call_args[0][0], 777)
+        ensure.assert_called_once()
+        with mock.patch.object(server_boot, "_servers_in_this_container", return_value=[778]):
+            replaced, kill, _ = self.run_it({"reachable": False})
+        self.assertFalse(replaced, "only once")
+        kill.assert_not_called()
+
+    def test_no_old_server_found_means_nothing_to_do(self):
+        with mock.patch.object(server_boot, "_servers_in_this_container", return_value=[]):
+            replaced, kill, _ = self.run_it({"reachable": False})
+        self.assertFalse(replaced)
+        kill.assert_not_called()
+
     def test_only_once_per_old_version_so_a_mismatch_cannot_loop(self):
         self.run_it({"codeVersion": "old", "pid": 1})
         replaced, kill, _ = self.run_it({"codeVersion": "old", "pid": 2})

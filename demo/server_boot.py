@@ -140,17 +140,45 @@ def code_version() -> str:
 _replaced: set[str] = set()
 
 
+def _servers_in_this_container() -> list[int]:
+    """Linux only (/proc): ids of processes running this app's server/index.ts from this folder. For servers
+    too old to report their own pid: they were started by this app in this container, so they show up here."""
+    proc = Path("/proc")
+    if not proc.is_dir():
+        return []
+    pids = []
+    for d in proc.iterdir():
+        if not d.name.isdigit() or int(d.name) == os.getpid():
+            continue
+        try:
+            args = (d / "cmdline").read_bytes().split(b"\0")
+            cwd = Path(os.readlink(d / "cwd")).resolve()
+        except OSError:
+            continue
+        if cwd == ROOT and any(a.replace(b"\\", b"/").endswith(b"server/index.ts") for a in args):
+            pids.append(int(d.name))
+    return pids
+
+
 def replace_if_outdated(api: str, status: dict) -> bool:
     """A server started before an update keeps running the old code (Streamlit Cloud reloads the page,
     not the container). If its fingerprint differs from the code on disk, stop it and start the new one.
+    Servers from before fingerprints existed report none: those are found by their command line instead.
     Only once per running version, so a fingerprint bug can't cause a restart loop. True if replaced."""
     running, pid = status.get("codeVersion"), status.get("pid")
-    if not running or not pid or running == code_version() or running in _replaced:
+    if running and (not pid or running == code_version()):
         return False
-    _replaced.add(running)
-    print(f"[orgmap] [boot] server code {running} is outdated (disk: {code_version()}): restarting it", file=sys.stderr, flush=True)
+    key = running or "unversioned"
+    if key in _replaced:
+        return False
+    pids = [int(pid)] if pid else _servers_in_this_container()
+    if not pids:
+        return False
+    _replaced.add(key)
+    print(f"[orgmap] [boot] server code {key} is outdated (disk: {code_version()}): restarting it", file=sys.stderr, flush=True)
     try:
-        os.kill(int(pid), signal.SIGTERM)
+        for p in pids:
+            os.kill(p, signal.SIGTERM)
     except OSError:
         return False
     for _ in range(30):
