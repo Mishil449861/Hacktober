@@ -257,4 +257,8 @@ export interface SystemStatus {
   notes: string[]
   /** Providers a visitor can use with their own API key (hosted demo, or instead of the local model). */
   aiProviders?: { id: string; label: string; defaultModel?: string; keyUrl: string }[]
+  /** Fingerprint of the running server's code (see server/index.ts codeVersion). */
+  codeVersion?: string
+  /** The server's process id, only when it listens on 127.0.0.1 (the hosted demo). */
+  pid?: number
 }

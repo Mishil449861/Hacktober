@@ -196,6 +196,8 @@ export interface OpenAiCompatConfig {
   name: string; baseUrl: string; apiKey?: string; model?: string; visionModel?: string
   /** Provider-specific request fields (e.g. Gemini's reasoning_effort); dropped if the provider refuses them. */
   extraBody?: Record<string, unknown>
+  /** Sampling temperature; null = don't send one (the provider's default). Default 0.1. */
+  temperature?: number | null
 }
 
 export function openAiCompatRuntime(cfg?: OpenAiCompatConfig): LocalRuntime {
@@ -211,9 +213,10 @@ export function openAiCompatRuntime(cfg?: OpenAiCompatConfig): LocalRuntime {
     async chat(req) {
       const content: unknown[] = [{ type: 'text', text: req.user }]
       for (const img of req.images ?? []) content.push({ type: 'image_url', image_url: { url: `data:${imageMime(img)};base64,${img}` } })
+      const temperature = cfg?.temperature === undefined ? 0.1 : cfg.temperature
       const body = {
         model: req.vision ? visionModel : model,
-        temperature: 0.1,
+        ...(temperature === null ? {} : { temperature }),
         messages: [{ role: 'system', content: req.system }, { role: 'user', content }],
       }
       const schema = { type: 'json_schema', json_schema: { name: 'output', schema: req.jsonSchema } }
@@ -239,9 +242,15 @@ export function openAiCompatRuntime(cfg?: OpenAiCompatConfig): LocalRuntime {
 // ---------------- bring your own key ----------------
 
 /** Hosted providers a visitor can use with their own key. Fixed addresses: never taken from the request. */
-export const AI_PROVIDERS: Record<string, { label: string; baseUrl: string; defaultModel?: string; keyUrl: string; extraBody?: Record<string, unknown> }> = {
-  // Gemini 3 models always "think" before answering; low effort keeps a note to seconds, not a minute.
-  gemini: { label: 'Google Gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', defaultModel: 'gemini-3.8-flash', keyUrl: 'https://aistudio.google.com/apikey', extraBody: { reasoning_effort: 'low' } },
+export const AI_PROVIDERS: Record<string, {
+  label: string; baseUrl: string; defaultModel?: string; keyUrl: string; extraBody?: Record<string, unknown>; temperature?: number | null
+}> = {
+  // Gemini 3 thinks at the highest level unless told otherwise (slow: a minute for a short note), and Google
+  // "strongly recommends" its default temperature of 1.0 ("below 1.0 may lead to ... looping").
+  gemini: {
+    label: 'Google Gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', defaultModel: 'gemini-3.8-flash',
+    keyUrl: 'https://aistudio.google.com/apikey', extraBody: { reasoning_effort: 'low' }, temperature: null,
+  },
   openai: { label: 'OpenAI', baseUrl: 'https://api.openai.com/v1', keyUrl: 'https://platform.openai.com/api-keys' },
   openrouter: { label: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', keyUrl: 'https://openrouter.ai/keys' },
   groq: { label: 'Groq', baseUrl: 'https://api.groq.com/openai/v1', keyUrl: 'https://console.groq.com/keys' },
@@ -260,7 +269,7 @@ export function keyRuntime(k: AiKey): LocalRuntime {
   const model = k.model?.trim() || p.defaultModel
   if (!model) throw new Error(`Choose a model for ${p.label}`)
   if (!k.apiKey?.trim()) throw new Error(`Add your ${p.label} API key`)
-  return openAiCompatRuntime({ name: k.provider, baseUrl: p.baseUrl, apiKey: k.apiKey.trim(), model, extraBody: p.extraBody })
+  return openAiCompatRuntime({ name: k.provider, baseUrl: p.baseUrl, apiKey: k.apiKey.trim(), model, extraBody: p.extraBody, temperature: p.temperature })
 }
 
 /** The human part of a provider's error body ({"error": {"message": ...}}, or a list of those), else the text. */

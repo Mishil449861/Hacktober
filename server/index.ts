@@ -1,4 +1,5 @@
 import 'dotenv/config'
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -16,6 +17,25 @@ import { ensureInboxFolder, inboxFolder, inboxState, INBOX_ROOT, pollNow, remove
 import { capturePage } from './capture.ts'
 
 const port = Number(process.env.PORT ?? 8787)
+
+/**
+ * Fingerprint of the server's code (server/**.ts, the shared schema, the package lock), reported by
+ * /api/status. The hosted demo page computes the same from its own files (demo/server_boot.py
+ * code_version) and restarts a server left running from before an update. Keep the two in step.
+ */
+const ROOT_DIR = path.resolve(import.meta.dirname, '..')
+const codeVersion = (() => {
+  const files = [
+    ...fs.readdirSync(path.join(ROOT_DIR, 'server'), { recursive: true }).map((f) => `server/${String(f).split(path.sep).join('/')}`).filter((f) => f.endsWith('.ts')),
+    'src/shared/schema.ts', 'package-lock.json',
+  ].sort()
+  const h = createHash('sha1')
+  for (const f of files) {
+    h.update(f); h.update('\0')
+    try { h.update(fs.readFileSync(path.join(ROOT_DIR, f))) } catch { /* missing file: hashed as empty */ }
+  }
+  return h.digest('hex').slice(0, 12)
+})()
 const app = express()
 app.use(express.json({ limit: '2mb' }))
 // Text-only sources may arrive as a plain form post (e.g. Python `requests.post(data=...)`), not multipart.
@@ -59,6 +79,9 @@ app.get('/api/status', wrap(async (_req, res) => {
     notes,
     // Hosted demos have no AI of their own: visitors bring a key for one of these.
     aiProviders: Object.entries(AI_PROVIDERS).map(([id, p]) => ({ id, label: p.label, defaultModel: p.defaultModel, keyUrl: p.keyUrl })),
+    codeVersion,
+    // Only when nothing but this machine can reach the API (the hosted demo): lets the page replace an outdated server.
+    ...(process.env.HOST === '127.0.0.1' ? { pid: process.pid } : {}),
   }
   if (inboxState.lastError) notes.push(`Cloudinary inbox: ${inboxState.lastError}`)
   res.json(status)

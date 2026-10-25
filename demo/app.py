@@ -20,6 +20,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
+import re
 import secrets
 import time
 from pathlib import Path
@@ -29,7 +30,7 @@ import requests
 import streamlit as st
 
 from client import API, api, apply_edits
-from server_boot import ensure_server
+from server_boot import ensure_server, replace_if_outdated
 from todos import (CHANGED_COLOR, NEW_COLOR, changes_by_item, editor_rows, friendly, md_text, plan_edits, short,
                    todo_table)
 
@@ -64,7 +65,14 @@ def create_board(name: str, example: bool) -> None:
 
 def board_link(board_id: str, example: bool) -> str:
     base = (getattr(st.context, "url", "") or "").split("?")[0]
+    # Streamlit Community Cloud serves the page inside its own frame at "<app>/~/+/": link to the app itself.
+    base = re.sub(r"/~/\+/?$", "/", base)
     return f"{base}?board={board_id}" + ("&example=1" if example else "")
+
+
+# Board ids are UUIDs. Anything else in the link is refused before it reaches a server address
+# (e.g. "?board=../workspaces" would otherwise ask for the list of every board).
+BOARD_ID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
 
 def error_text(e: Exception) -> str:
@@ -182,25 +190,29 @@ except Exception:  # noqa: BLE001
 HOSTED = os.environ.get("ORGMAP_HOSTED", "").strip().lower() in ("1", "true", "yes")
 
 
-@st.cache_resource(show_spinner=False)
-def boot_server() -> bool:
-    """Hosted copy: start the server inside this container, once. A failure raises, so it's retried next visit."""
-    ensure_server(API)
-    return True
-
-
 try:
     status = api("GET", "/api/status")
 except Exception:  # noqa: BLE001
     if not HOSTED:
         st.error("The OrgMap server isn't running. Start it with `npm run dev`, then refresh this page.")
         st.stop()
+    # Hosted copy: start the server inside this container (again, if it stopped). ensure_server is cheap
+    # when it's already up, and only one session at a time can start it.
     with st.spinner("Starting OrgMap… the first visit after a quiet spell takes 1 to 3 minutes."):
         try:
-            boot_server()
+            ensure_server(API)
             status = api("GET", "/api/status")
         except Exception as e:  # noqa: BLE001
             st.error(f"OrgMap couldn't start: {e}. Refresh the page in a minute to try again.")
+            st.stop()
+if HOSTED:
+    # A server started before an update still runs the old code: replace it (once per old version).
+    with st.spinner("Updating OrgMap…"):
+        try:
+            if replace_if_outdated(API, status):
+                status = api("GET", "/api/status")
+        except Exception as e:  # noqa: BLE001
+            st.error(f"OrgMap couldn't restart after an update: {e}. Refresh the page in a minute.")
             st.stop()
 
 local_ai = bool(status.get("reachable"))
@@ -251,9 +263,11 @@ if not board_id:
 
 # ---- a board
 try:
+    if not BOARD_ID.match(str(board_id)):
+        raise RuntimeError("404: not a board link")
     state = api("GET", f"/api/workspaces/{board_id}")
 except RuntimeError:
-    st.warning("This board doesn't exist any more. It may have been deleted.")
+    st.warning("This board doesn't exist any more. It may have been deleted, or the link is incomplete.")
     if st.button("Make a new board", type="primary"):
         st.query_params.clear()
         st.rerun()

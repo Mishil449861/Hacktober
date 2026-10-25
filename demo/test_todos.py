@@ -216,8 +216,8 @@ class DemoPage(unittest.TestCase):
 
         responses = {
             "/api/status": {"reachable": True, "cloudinary": False, "visionModel": "test"},
-            "/api/workspaces/w1/views": self.VIEWS,
-            "/api/workspaces/w1": {"workspace": {"id": "w1", "name": "Team offsite · 3f2a"}, "sources": [], "nodes": [], "edges": []},
+            "/api/workspaces/7c1e4a2b-3d5f-4e6a-8b9c-0d1e2f3a4b5c/views": self.VIEWS,
+            "/api/workspaces/7c1e4a2b-3d5f-4e6a-8b9c-0d1e2f3a4b5c": {"workspace": {"id": "7c1e4a2b-3d5f-4e6a-8b9c-0d1e2f3a4b5c", "name": "Team offsite · 3f2a"}, "sources": [], "nodes": [], "edges": []},
         }
         calls = []
 
@@ -244,7 +244,7 @@ class DemoPage(unittest.TestCase):
         self.assertNotIn(("GET", "/api/workspaces"), calls, "the page must never list other people's boards")
 
     def test_board_renders_incomplete_todos(self):
-        at, _ = self.run_page("w1")
+        at, _ = self.run_page("7c1e4a2b-3d5f-4e6a-8b9c-0d1e2f3a4b5c")
         self.assertFalse(at.exception, at.exception)
         page = "\n".join(m.value for m in at.markdown)
         for label in ("Book the venue", "Order the catering", "Send the invitations", "Print the badges", "Call the hotel", "Write the agenda"):
@@ -252,12 +252,19 @@ class DemoPage(unittest.TestCase):
         self.assertIn("| **Call the hotel** | nobody yet | no date |", page)
         self.assertIn("Your board: Team offsite · 3f2a", page)
         self.assertIn("Use \\[brackets\\] safely", page, "decision labels are escaped")
-        self.assertIn("?board=w1", "\n".join(c.value for c in at.code), "the board's own link is shown")
+        self.assertIn("?board=7c1e4a2b-3d5f-4e6a-8b9c-0d1e2f3a4b5c", "\n".join(c.value for c in at.code), "the board's own link is shown")
 
     def test_missing_board(self):
-        at, _ = self.run_page("gone")
+        at, _ = self.run_page("0d8f2b9e-4c1a-4e7b-9a3f-1b2c3d4e5f60")
         self.assertFalse(at.exception, at.exception)
         self.assertIn("doesn't exist", "\n".join(w.value for w in at.warning))
+
+    def test_a_crafted_board_link_never_reaches_the_server(self):
+        for board in ("../workspaces", "7c1e4a2b-3d5f-4e6a-8b9c-0d1e2f3a4b5c/../../workspaces", "x?y", "../sources/s1/trace"):
+            at, calls = self.run_page(board)
+            self.assertFalse(at.exception, at.exception)
+            self.assertIn("doesn't exist", "\n".join(w.value for w in at.warning))
+            self.assertEqual([p for _, p in calls if p != "/api/status"], [], f"{board!r} was sent to the server")
 
 
 @unittest.skipUnless(importlib.util.find_spec("streamlit"), "streamlit not installed")
@@ -273,9 +280,9 @@ class HostedPage(unittest.TestCase):
         views = {"actionItems": [], "changes": [], "decisions": [], "blockers": [], "orgChart": {"nodes": [], "edges": []}}
         responses = {
             "/api/status": {"reachable": False, "cloudinary": False, "aiProviders": self.PROVIDERS},
-            "/api/workspaces/w1/views": views,
-            "/api/workspaces/w1": {"workspace": {"id": "w1", "name": "Board · 0000"}, "sources": [], "nodes": [], "edges": []},
-            "/api/workspaces/w1/sources": [{"id": "s1"}],
+            "/api/workspaces/7c1e4a2b-3d5f-4e6a-8b9c-0d1e2f3a4b5c/views": views,
+            "/api/workspaces/7c1e4a2b-3d5f-4e6a-8b9c-0d1e2f3a4b5c": {"workspace": {"id": "7c1e4a2b-3d5f-4e6a-8b9c-0d1e2f3a4b5c", "name": "Board · 0000"}, "sources": [], "nodes": [], "edges": []},
+            "/api/workspaces/7c1e4a2b-3d5f-4e6a-8b9c-0d1e2f3a4b5c/sources": [{"id": "s1"}],
             "/api/ai/check": {"ok": True} if check_ok else {"ok": False, "error": "401 API key not valid"},
         }
         calls = []
@@ -325,16 +332,16 @@ class HostedPage(unittest.TestCase):
         self.assertIn("API key not valid", "\n".join(e.value for e in at.error))
 
     def test_without_a_key_notes_are_blocked(self):
-        at, _ = self.run_page(board="w1")
+        at, _ = self.run_page(board="7c1e4a2b-3d5f-4e6a-8b9c-0d1e2f3a4b5c")
         self.assertFalse(at.exception, at.exception)
         self.assertTrue(next(b for b in at.button if b.label == "Add").disabled)
         self.assertIn("Connect your AI", "\n".join(m.value for m in at.markdown))
 
     def test_notes_carry_the_visitors_key(self):
         key = {"provider": "gemini", "key": "AIza-test", "model": "gemini-3.8-flash", "label": "Google Gemini"}
-        at, calls = self.run_page(board="w1", key=key, text="- Sam: write the agenda by Friday", click=("Add", None))
+        at, calls = self.run_page(board="7c1e4a2b-3d5f-4e6a-8b9c-0d1e2f3a4b5c", key=key, text="- Sam: write the agenda by Friday", click=("Add", None))
         self.assertFalse(at.exception, at.exception)
-        sent = [d for m, p, d in calls if m == "POST" and p == "/api/workspaces/w1/sources"]
+        sent = [d for m, p, d in calls if m == "POST" and p == "/api/workspaces/7c1e4a2b-3d5f-4e6a-8b9c-0d1e2f3a4b5c/sources"]
         self.assertEqual(len(sent), 1)
         self.assertEqual({k: sent[0][k] for k in ("ai_provider", "ai_key", "ai_model")},
                          {"ai_provider": "gemini", "ai_key": "AIza-test", "ai_model": "gemini-3.8-flash"})

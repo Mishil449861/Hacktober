@@ -11,8 +11,10 @@ The server's output goes to the page's own output (on Community Cloud: "Manage a
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -119,6 +121,44 @@ def server_env(api: str) -> dict[str, str]:
     }.items():
         env.setdefault(k, v)
     return env
+
+
+def code_version() -> str:
+    """Fingerprint of the server code on disk; must match server/index.ts codeVersion."""
+    files = sorted([f"server/{p.relative_to(ROOT / 'server').as_posix()}" for p in (ROOT / "server").rglob("*.ts")]
+                   + ["src/shared/schema.ts", "package-lock.json"])
+    h = hashlib.sha1()
+    for f in files:
+        h.update(f.encode() + b"\0")
+        try:
+            h.update((ROOT / f).read_bytes())
+        except OSError:
+            pass
+    return h.hexdigest()[:12]
+
+
+_replaced: set[str] = set()
+
+
+def replace_if_outdated(api: str, status: dict) -> bool:
+    """A server started before an update keeps running the old code (Streamlit Cloud reloads the page,
+    not the container). If its fingerprint differs from the code on disk, stop it and start the new one.
+    Only once per running version, so a fingerprint bug can't cause a restart loop. True if replaced."""
+    running, pid = status.get("codeVersion"), status.get("pid")
+    if not running or not pid or running == code_version() or running in _replaced:
+        return False
+    _replaced.add(running)
+    print(f"[orgmap] [boot] server code {running} is outdated (disk: {code_version()}): restarting it", file=sys.stderr, flush=True)
+    try:
+        os.kill(int(pid), signal.SIGTERM)
+    except OSError:
+        return False
+    for _ in range(30):
+        if not healthy(api):
+            break
+        time.sleep(0.5)
+    ensure_server(api)
+    return True
 
 
 def ensure_server(api: str, wait_s: int = 300) -> None:

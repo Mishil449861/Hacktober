@@ -10,21 +10,31 @@ import { onPersist, store } from './store.ts'
 
 const PUBLIC_ID = process.env.ORGMAP_DB_BACKUP_ID || 'orgmap-backup/db.json'
 export const backupEnabled = process.env.ORGMAP_DB_BACKUP === 'cloudinary' && cloudinaryEnabled
+/**
+ * Set when the backup exists but couldn't be read (Cloudinary briefly unreachable, ...). Uploading after
+ * that would replace everyone's boards with this server's empty start, so backups stay off until a restart.
+ */
+let restoreFailed = false
 
 export async function restoreBackup() {
   if (!backupEnabled || store.db.workspaces.length) return
-  try {
-    const url = cloudinary.utils.private_download_url(PUBLIC_ID, '', { resource_type: 'raw', type: 'private' })
-    const res = await fetch(url, { signal: AbortSignal.timeout(30_000) })
-    if (res.status === 404) return void console.log('[backup] no backup yet: starting empty')
-    if (!res.ok) throw new Error(`${res.status} ${(await res.text()).slice(0, 200)}`)
-    const db = await res.json()
-    if (!Array.isArray(db?.workspaces)) throw new Error('backup is not an OrgMap database')
-    store.db = db
-    console.log(`[backup] restored ${db.workspaces.length} board(s) from Cloudinary`)
-  } catch (e) {
-    console.error('[backup] restore failed, starting empty:', (e as Error).message)
+  const url = cloudinary.utils.private_download_url(PUBLIC_ID, '', { resource_type: 'raw', type: 'private' })
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(30_000) })
+      if (res.status === 404) return void console.log('[backup] no backup yet: starting empty')
+      if (!res.ok) throw new Error(`${res.status} ${(await res.text()).slice(0, 200)}`)
+      const db = await res.json()
+      if (!Array.isArray(db?.workspaces)) throw new Error('backup is not an OrgMap database')
+      store.db = db
+      return void console.log(`[backup] restored ${db.workspaces.length} board(s) from Cloudinary`)
+    } catch (e) {
+      console.error(`[backup] restore attempt ${attempt} failed:`, (e as Error).message)
+      if (attempt < 3) await new Promise((r) => setTimeout(r, Number(process.env.ORGMAP_BACKUP_RETRY_MS ?? 3000) * attempt))
+    }
   }
+  restoreFailed = true
+  console.error('[backup] could not restore: starting empty, and NOT backing up (the old backup is kept). Restart the app to retry.')
 }
 
 let timer: NodeJS.Timeout | undefined
@@ -50,8 +60,13 @@ function scheduleBackup() {
   }, 20_000)
 }
 
+/** For tests and logs: is the backup on, and did the restore fail? */
+export const backupState = () => ({ enabled: backupEnabled, restoreFailed, active })
+let active = false
+
 export function startBackup() {
-  if (!backupEnabled) return
+  if (!backupEnabled || restoreFailed) return
+  active = true
   onPersist(scheduleBackup)
   console.log(`[backup] boards are backed up to Cloudinary (private raw file "${PUBLIC_ID}")`)
 }

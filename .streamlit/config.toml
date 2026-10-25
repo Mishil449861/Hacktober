@@ -1,13 +1,18 @@
-# Streamlit settings for the demo page (picked up by `npm run demo` and start-demo.ps1).
+# Streamlit settings for the demo page (picked up by `npm run demo`, start-demo.ps1 and Streamlit Community Cloud).
 
 [server]
 # Presentation mode: no developer pop-ups ("Help agents write better apps"). Streamlit then doesn't
 # open the browser by itself; start-demo.ps1 opens it, or go to http://localhost:8501.
 headless = true
+# The OrgMap server accepts photos up to 20 MB; refuse bigger ones in the browser already.
+maxUploadSize = 20
 
 [client]
 # Hide the Deploy button and developer menu: the audience sees only the demo.
 toolbarMode = "minimal"
+# Visitors see a plain "something went wrong", never tracebacks or internal details.
+# Full details still go to the console (Streamlit Cloud: Manage app > logs).
+showErrorDetails = "none"
 
 [browser]
 gatherUsageStats = false

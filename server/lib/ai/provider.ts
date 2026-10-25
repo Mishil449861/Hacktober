@@ -96,9 +96,11 @@ async function structured<T extends z.ZodTypeAny>(
   throw new ModelOutputError('The local model returned output that could not be validated. See server logs.')
 }
 
-function tryParse<T extends z.ZodTypeAny>(schema: T, raw: string): { ok: true; value: z.infer<T> } | { ok: false; error: string } {
+export function tryParse<T extends z.ZodTypeAny>(schema: T, raw: string): { ok: true; value: z.infer<T> } | { ok: false; error: string } {
   try {
-    const cleaned = raw.replace(/^[\s\S]*?(?=\{)/, '').replace(/<think>[\s\S]*?<\/think>/g, '')
+    // Drop reasoning blocks, then anything around the JSON object (```json fences, a sentence before or after).
+    const unthought = raw.replace(/<think>[\s\S]*?<\/think>/g, '')
+    const cleaned = unthought.slice(Math.max(0, unthought.indexOf('{')), unthought.lastIndexOf('}') + 1)
     const res = schema.safeParse(JSON.parse(cleaned))
     return res.success ? { ok: true, value: res.data } : { ok: false, error: res.error.message.slice(0, 1500) }
   } catch (e) {
