@@ -69,6 +69,10 @@ Boards survive the app being restarted on a fresh disk (after 12 hours asleep, o
 3. **Advanced settings**: Python 3.12, and paste the secrets from [.streamlit/secrets.toml.example](.streamlit/secrets.toml.example) with your Cloudinary values (`ORGMAP_HOSTED = "true"` is what switches on visitor keys and the self-started server).
 4. **Deploy.** The first visit installs the server's packages and takes 2 to 3 minutes; later wake-ups about a minute.
 
+Updates: push to `main` and Streamlit reloads the page; the page notices the server is still running the old code (it compares a fingerprint of the code) and restarts it, so no manual reboot is needed. The server's messages appear in **Manage app → logs**, prefixed `[orgmap]`. Visitors never see error details (`showErrorDetails = "none"`).
+
+With Gemini, the server asks for low reasoning effort and leaves the temperature at Google's default (Google warns that lowering it on Gemini 3 can cause looping). **Use this key** checks the key by listing the models it can use, so it answers in about a second and says if the chosen model isn't available.
+
 Limits: up to 2.7 GB of memory; one AI request at a time per app (visitors queue); speed depends on the visitor's provider (Gemini: a few seconds per note).
 
 ### From this laptop (Tailscale Funnel)
@@ -307,11 +311,13 @@ All in `.env` (see [.env.example](.env.example)):
 ## Testing
 
 ```bash
-npm test                 # 60 unit tests: the notes parser, handwritten lists and ownership, crossed-out items,
+npm test                 # 67 unit tests: the notes parser, handwritten lists and ownership, crossed-out items,
                          # name matching, validation, relationship fixes, status history, views, visitors'
-                         # AI keys (each key only for its own notes, fixed provider addresses) (no model needed)
-npm run test:demo        # 34 tests of the demo page: the to-do list (including to-dos with no date, owner or
-                         # status), editing it, boards, and the online demo's key flow
+                         # AI keys (each key only for its own notes, fixed provider addresses, the key check),
+                         # Gemini settings, and the backup never being overwritten after a failed restore
+npm run test:demo        # 40 tests of the demo page: the to-do list (including to-dos with no date, owner or
+                         # status), editing it, boards, crafted board links, the online demo's key flow,
+                         # and replacing a server left running from before an update
 npm run test:eval        # 6 extraction cases: text, name matching, org chart, process flow, diagram + notes
 npm run test:scenario    # a 4-meeting, 2-photo project with 13 checks on the result
 npm run test:handwritten # two handwritten photos and two typed notes, first meeting then follow-up
