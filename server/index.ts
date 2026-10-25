@@ -97,8 +97,9 @@ function keyFrom(body: Record<string, unknown> | undefined): AiKey | undefined {
   keyRuntime(k) // validates provider, model, key
   return k
 }
-/** Never echo a key back: providers sometimes quote it in error messages. */
-const redact = (msg: string, k?: AiKey) => (k ? msg.split(k.apiKey).join('[your key]') : msg)
+/** Never echo a key back: providers sometimes quote it in error messages. (Only real-length keys: blanking
+ * a 1-letter test key would blank that letter everywhere.) */
+const redact = (msg: string, k?: AiKey) => (k && k.apiKey.length >= 8 ? msg.split(k.apiKey).join('[your key]') : msg)
 
 /** Check a key (and that it can use the chosen model) before any notes are sent. Answers within ~45 s at most. */
 app.post('/api/ai/check', wrap(async (req, res) => {

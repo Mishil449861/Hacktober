@@ -83,6 +83,14 @@ test('the key check lists models (fast, no generation) and explains a wrong mode
   } finally { f.restore() }
 })
 
+test('the key check ignores how a provider decorates model ids', async () => {
+  const f = fakeFetch(() => [200, { data: [{ id: 'gemini-3.8-flash:latest' }, { id: 'models/other' }] }])
+  try {
+    assert.equal(await checkKey({ provider: 'gemini', apiKey: 'k' }), 'gemini-3.8-flash')
+    assert.equal(await checkKey({ provider: 'gemini', apiKey: 'k', model: 'gemini-3.8-flash:latest' }), 'gemini-3.8-flash:latest')
+  } finally { f.restore() }
+})
+
 test('providerMessage keeps the human part of an error body', () => {
   assert.equal(providerMessage('{"error":{"message":"Quota exceeded"}}'), 'Quota exceeded')
   assert.equal(providerMessage('[{"error":{"message":"Bad key"}}]'), 'Bad key')

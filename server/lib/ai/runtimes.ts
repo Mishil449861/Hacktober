@@ -298,8 +298,10 @@ export async function checkKey(k: AiKey, timeoutMs = 45_000): Promise<string> {
     throw new Error(`${p.label} rejected the key: ${providerMessage(await res.text())}`)
   }
   if (res.ok) {
-    const ids = (((await res.json()) as { data?: { id?: string }[] }).data ?? []).map((m) => String(m.id ?? '').replace(/^models\//, ''))
-    if (ids.length && !ids.includes(model)) {
+    // Providers decorate ids: Gemini "models/gemini-3.8-flash", Ollama "qwen2.5vl:latest". Compare the bare names.
+    const bare = (id: string) => id.replace(/^models\//, '').replace(/:latest$/, '')
+    const ids = (((await res.json()) as { data?: { id?: string }[] }).data ?? []).map((m) => bare(String(m.id ?? '')))
+    if (ids.length && !ids.includes(bare(model))) {
       const close = ids.filter((id) => id.includes(model.split('-')[0])).slice(0, 6)
       throw new Error(`the key works, but it can't use the model "${model}"${close.length ? `. Models it can use include: ${close.join(', ')}` : ''}`)
     }
