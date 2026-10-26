@@ -30,11 +30,14 @@ import requests
 import streamlit as st
 
 from client import API, api, apply_edits
+from cloudinary_info import explain, size_text, transformation
 from server_boot import ensure_server, replace_if_outdated
 from todos import (CHANGED_COLOR, NEW_COLOR, changes_by_item, editor_rows, friendly, md_text, plan_edits, short,
                    todo_table)
 
-WHITEBOARD = Path(__file__).parent / "whiteboard.png"
+# The sample photo: the whiteboard as a quick phone snapshot looks (dim, grey cast, soft), so Cloudinary's
+# clean-up is visible side by side. Made from whiteboard.png by make_whiteboard_photo.py.
+WHITEBOARD = Path(__file__).parent / "whiteboard-photo.jpg"
 
 today = dt.date.today()
 
@@ -51,23 +54,83 @@ Chloe joins the team and reports to Maya.
 - Decision: lunch will be catered."""
 
 
-def open_board(board_id: str, example: bool) -> None:
-    st.query_params.from_dict({"board": board_id, **({"example": "1"} if example else {})})
+# A board's tour, kept in its link: "example" (two notes, then a photo) or "photo" (the whiteboard photo first:
+# shows Cloudinary at work straight away). None = a blank board.
+TOURS = ("example", "photo")
+
+
+def open_board(board_id: str, tour: str | None) -> None:
+    st.query_params.from_dict({"board": board_id, **({tour: "1"} if tour in TOURS else {})})
     st.session_state.pop("edit_version", None)
     st.rerun()
 
 
-def create_board(name: str, example: bool) -> None:
+def create_board(name: str, tour: str | None) -> None:
     # A short random suffix keeps boards with the same name apart (e.g. in Cloudinary's inbox folders).
     ws = api("POST", "/api/workspaces", json={"name": f"{name.strip() or 'My board'} · {secrets.token_hex(2)}"})
-    open_board(ws["id"], example)
+    open_board(ws["id"], tour)
 
 
-def board_link(board_id: str, example: bool) -> str:
+def board_link(board_id: str, tour: str | None) -> str:
     base = (getattr(st.context, "url", "") or "").split("?")[0]
     # Streamlit Community Cloud serves the page inside its own frame at "<app>/~/+/": link to the app itself.
     base = re.sub(r"/~/\+/?$", "/", base)
-    return f"{base}?board={board_id}" + ("&example=1" if example else "")
+    return f"{base}?board={board_id}" + (f"&{tour}=1" if tour in TOURS else "")
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def image_bytes(url: str) -> int | None:
+    """Size of an image as Cloudinary delivers it (for "339 KB -> 167 KB"); None if unknown."""
+    try:
+        r = requests.get(url, timeout=15)
+        return len(r.content) if r.ok else None
+    except requests.RequestException:
+        return None
+
+
+def cloudinary_panel(p: dict) -> None:
+    """What Cloudinary did with a photo: the three images, each transformation in plain words (read from the
+    actual delivery URLs), and what the AI read from Cloudinary's prepared copy."""
+    cld = p.get("cloudinary")
+    st.subheader("How Cloudinary handled the photo")
+    if not cld:
+        st.info("This photo was stored on the server itself, because Cloudinary isn't configured. Add the three "
+                "`CLOUDINARY_…` values to `.env` (or the app's secrets) and restart to store and prepare photos with Cloudinary.")
+        return
+    clean = lambda u: (u or "").split("?")[0]  # noqa: E731  (drop the SDK analytics suffix)
+    original, prepared, thumb = cld["secureUrl"], clean(p.get("analysisUrl") or p["previewUrl"]), clean(p["thumbUrl"])
+    sizes = [image_bytes(u) for u in (original, prepared, thumb)]
+    a, b, c = st.columns([5, 5, 3])
+    with a:
+        st.image(original)
+        st.markdown("**1. Uploaded and stored**")
+        st.caption(f"The original photo, untouched: {cld['width']} × {cld['height']} {cld['format'].upper()}"
+                   + (f", {size_text(sizes[0])}" if sizes[0] else "") + ". Uploaded by the OrgMap server with a signed "
+                   "request; the API secret never reaches the browser.")
+    with b:
+        st.image(prepared)
+        st.markdown("**2. Prepared for the AI**")
+        st.caption("A cleaned-up copy Cloudinary makes on the fly from the original"
+                   + (f" ({size_text(sizes[1])})" if sizes[1] else "") + ". **This is the image the AI read.**")
+    with c:
+        st.image(thumb)
+        st.markdown("**3. Thumbnail**")
+        st.caption("Smart-cropped around the content" + (f", {size_text(sizes[2])}" if sizes[2] else "") + ".")
+
+    st.markdown("**What Cloudinary did to make copy 2**, read from its address:")
+    rows = ["| In the address | What Cloudinary does |", "|---|---|"]
+    rows += [f"| `{s}` | {explain(s)} |" for s in transformation(prepared)]
+    st.markdown("\n".join(rows))
+    st.code(prepared, language=None, wrap_lines=True)
+    st.caption("Nothing is stored for copy 2 or the thumbnail in advance: Cloudinary builds them from the original "
+               "the first time the address is requested, then serves them from its CDN. Thumbnail: "
+               + "; ".join(e[:1].lower() + e[1:] for e in map(explain, transformation(thumb))) + ".")
+    if p.get("ocrText"):
+        with st.expander("What the AI read from Cloudinary's copy"):
+            st.text(p["ocrText"][:3000])
+            st.caption(f"Read with: {p.get('analyzedWith') or 'the AI'}. The to-do list on this page was built from this reading.")
+    st.caption(f"Cloud **{status.get('cloudName')}** · asset `{cld['publicId']}` · uploaded "
+               f"{cld['createdAt'][:16].replace('T', ' ')} UTC · [open the original]({original})")
 
 
 # Board ids are UUIDs. Anything else in the link is refused before it reaches a server address
@@ -225,7 +288,8 @@ if need_key and not providers:
 st.title("Meeting notes in. To-do list out.")
 
 board_id = st.query_params.get("board")
-example = st.query_params.get("example") == "1"
+tour = next((t for t in TOURS if st.query_params.get(t) == "1"), None)
+example, photo_tour = tour == "example", tour == "photo"
 
 # ---- start screen: no board yet
 if not board_id:
@@ -253,12 +317,15 @@ if not board_id:
         st.subheader("2. Start your board")
     st.info("You get **your own board** with a private link. Nobody else can see or change it unless you share that link.")
     name = st.text_input("Name your board (optional)", placeholder="e.g. Team offsite", max_chars=60)
-    c1, c2 = st.columns(2)
-    if c1.button("Start with an example", type="primary", width="stretch",
+    c1, c2, c3 = st.columns(3)
+    if c1.button("Start with a whiteboard photo", type="primary", width="stretch",
+                 help="See Cloudinary prepare a whiteboard photo for the AI, and the to-do list it becomes."):
+        create_board(name or "Whiteboard board", "photo")
+    if c2.button("Start with an example", width="stretch",
                  help="A guided tour: two prepared notes and a whiteboard photo, then your own."):
-        create_board(name or "Example board", True)
-    if c2.button("Start with a blank board", width="stretch", help="Straight to your own notes."):
-        create_board(name or "My board", False)
+        create_board(name or "Example board", "example")
+    if c3.button("Start with a blank board", width="stretch", help="Straight to your own notes."):
+        create_board(name or "My board", None)
     st.stop()
 
 # ---- a board
@@ -280,13 +347,14 @@ done = [c for c in views["changes"] if c["status"] == "DONE"]
 failed = [c for c in views["changes"] if c["status"] == "ERROR"]
 stage = len(views["changes"])  # sources read so far; drives the example's steps
 items = views.get("actionItems") or []
-guided = example and stage < 3
+guided = (example and stage < 3) or (photo_tour and stage < 1)
+photos = [s for s in sources if s["type"] == "IMAGE"]
 
 with st.container(border=True):
     st.markdown(f"**Your board: {md_text(state['workspace']['name'])}**")
     st.caption("Only people with this link can see and edit this board. Bookmark it, or copy it to come back later "
                "or to share the board with your team:")
-    st.code(board_link(board_id, example), language=None, wrap_lines=True)
+    st.code(board_link(board_id, tour), language=None, wrap_lines=True)
 
 # Notes and photos need an AI: the visitor's key when the demo has none of its own.
 blocked = need_key and not ai_key()
@@ -321,6 +389,11 @@ if stage or items:
             lines.append("New: " + ", ".join(new))
         what = "the photo" if latest["type"] == "IMAGE" else "the latest notes"
         st.success(f"**What {what} changed**\n\n" + "\n\n".join(lines))
+
+    # The whiteboard-photo tour is about Cloudinary: show what it did first, then what the AI made of it.
+    if photo_tour and photos:
+        cloudinary_panel(photos[-1])
+        st.divider()
 
     # From the second input on, mark what the latest one added (green) and changed (orange). On the first
     # notes everything is new, so nothing is marked.
@@ -407,61 +480,48 @@ if stage or items:
         else:
             st.caption("Nobody mentioned yet.")
 
-    # ---- proof of what Cloudinary did with the latest photo
-    photos = [s for s in sources if s["type"] == "IMAGE"]
-    if photos:
-        p = photos[-1]
-        cld = p.get("cloudinary")
-        st.subheader("What Cloudinary did with the photo")
-        if cld:
-            clean = lambda u: (u or "").split("?")[0]  # noqa: E731  (drop the SDK analytics suffix)
-            a, b, c = st.columns([5, 5, 3])
-            a.image(cld["secureUrl"], caption="1. Stored: the original, untouched")
-            b.image(p.get("analysisUrl") or p["previewUrl"], caption="2. Prepared for the AI: resized, contrast improved, sharpened")
-            c.image(p["thumbUrl"], caption="3. Thumbnail: smart-cropped")
-            st.caption("The AI read copy 2. Cloudinary made it on the fly; the instructions are in the address:")
-            st.code(clean(p.get("analysisUrl")), language=None, wrap_lines=True)
-            st.caption(
-                f"Cloud **{status.get('cloudName')}** · asset `{cld['publicId']}` · {cld['width']}×{cld['height']} {cld['format'].upper()} · "
-                f"uploaded {cld['createdAt'][:16].replace('T', ' ')} UTC by a signed request from the OrgMap server "
-                f"(the API secret never reaches the browser). [Open the original]({cld['secureUrl']})")
-        else:
-            st.info("This photo was stored on the server itself, because Cloudinary isn't configured. Add the three "
-                    "`CLOUDINARY_…` values to `.env` (or the app's secrets) and restart to store and prepare photos with Cloudinary.")
+    # ---- proof of what Cloudinary did with the latest photo (shown first on the whiteboard-photo tour)
+    if photos and not photo_tour:
+        cloudinary_panel(photos[-1])
 
 if failed:
     st.warning("One of the inputs couldn't be read. Try adding it again, or type the to-dos into the table above.")
 st.divider()
 
 # ---- input: the example's guided steps, or free notes
-if guided and stage == 0:
+if example and stage == 0:
     st.subheader("1. Here are some notes from a meeting")
     text = st.text_area("Notes", NOTE_1, height=150, key="notes-0", label_visibility="collapsed")
     st.caption("Change anything you like, or just press the button." + (" Connect your AI above first." if blocked else ""))
     if st.button("Read my notes", type="primary", disabled=blocked or not text.strip()) and read(ws_id, FIRST_DAY, text):
         st.rerun()
 
-elif guided and stage == 1:
+elif example and stage == 1:
     st.subheader("2. A few days later, there's an update")
     text = st.text_area("Notes", NOTE_2, height=150, key="notes-1", label_visibility="collapsed")
     st.caption("Watch the to-do list above: Ben's task gets ticked off and Chloe's is added.")
     if st.button("Add the update", type="primary", disabled=blocked or not text.strip()) and read(ws_id, today, text):
         st.rerun()
 
-elif guided and stage == 2:
-    st.subheader("3. Then someone photographs the whiteboard")
+elif (example and stage == 2) or (photo_tour and stage == 0):
+    st.subheader("1. After a meeting, someone photographs the whiteboard" if photo_tour
+                 else "3. Then someone photographs the whiteboard")
     st.image(str(WHITEBOARD), width=460)
-    st.caption("The photo is uploaded to Cloudinary, which prepares a cleaned-up copy for the AI to read.")
+    st.caption("When you press the button, the photo is uploaded to Cloudinary, which stores it and prepares a "
+               "cleaned-up copy for the AI to read. The page then shows exactly what Cloudinary did."
+               + (" Connect your AI above first." if blocked else ""))
     mine = None
     with st.expander("Use my own photo instead (handwritten notes, a whiteboard, sticky notes)"):
-        mine = own_photo("step3")
+        mine = own_photo(f"photo-{stage}")
     if st.button("Read my photo" if mine else "Read the photo", type="primary", disabled=blocked) and \
-            read(ws_id, today, photo=mine or ("whiteboard.png", WHITEBOARD.read_bytes(), "image/png")):
+            read(ws_id, today, photo=mine or ("whiteboard photo.jpg", WHITEBOARD.read_bytes(), "image/jpeg")):
         st.rerun()
 
 else:
     if example:
         st.subheader("4. Now try your own")
+    elif photo_tour:
+        st.subheader("2. Now add notes, or another photo")
     else:
         st.subheader("Add more notes" if stage else "Add your first notes")
     hint = ("For example:\n- Sam: write the agenda by Friday\n- Maya: book the room by Oct 30\n"

@@ -30,6 +30,16 @@ The page opens on a start screen. Each visitor names a board (optional) and pick
 
 Everything on a board can be changed: add notes or photos at any time (later notes update the list, e.g. "… Done." ticks a to-do off), or open **Edit the to-do list** and tick off, rename, reassign (several people: `Ben, Maya`), change dates, add rows and delete rows directly, then press **Save changes**. Manual edits and later notes work together: a note can tick off a to-do you renamed by hand.
 
+### The whiteboard-photo tour (Cloudinary first)
+
+**Start with a whiteboard photo** goes straight to a sample phone snapshot of a whiteboard (dim, grey cast, slightly soft, made by [demo/make_whiteboard_photo.py](demo/make_whiteboard_photo.py)). Press **Read the photo** and the page opens with **How Cloudinary handled the photo**:
+
+1. **Uploaded and stored:** the untouched original, with its size.
+2. **Prepared for the AI:** the brighter, sharper copy Cloudinary builds on the fly. This is the image the AI reads.
+3. **Thumbnail:** smart-cropped around the content.
+
+Below that, every step of the transformation is explained in plain words, read from the actual delivery URL (`c_limit`, `e_improve`, `e_sharpen`, `f_jpg,q_90`), and **What the AI read from Cloudinary's copy** shows the text the to-do list was built from. Then comes the to-do list itself.
+
 ### The example
 
 | Step | You do | You see |

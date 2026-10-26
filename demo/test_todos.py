@@ -240,7 +240,7 @@ class DemoPage(unittest.TestCase):
     def test_start_screen_offers_a_new_board_and_lists_no_one_elses(self):
         at, calls = self.run_page()
         self.assertFalse(at.exception, at.exception)
-        self.assertEqual([b.label for b in at.button], ["Start with an example", "Start with a blank board"])
+        self.assertEqual([b.label for b in at.button], ["Start with a whiteboard photo", "Start with an example", "Start with a blank board"])
         self.assertNotIn(("GET", "/api/workspaces"), calls, "the page must never list other people's boards")
 
     def test_board_renders_incomplete_todos(self):
