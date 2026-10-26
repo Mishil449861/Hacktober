@@ -120,7 +120,9 @@ Typed notes never leave the laptop. **Every photo goes through Cloudinary**, and
    ```
    https://res.cloudinary.com/<cloud>/image/upload/c_limit,h_1600,w_1600/e_improve/e_sharpen:60/f_jpg,q_90/v1/orgmap/<project>/<id>
    ```
-   `c_limit,w_1600,h_1600` caps the size, `e_improve` fixes contrast and colour, `e_sharpen:60` makes handwriting crisper. The local model reads this copy, not the original.
+   `c_limit,w_1600,h_1600` caps the size, `e_improve` adjusts contrast and colour, `e_sharpen:60` sharpens edges. The local model reads this copy, not the original.
+
+   **What it's worth, measured** (Oct 26, local `qwen2.5vl:7b`, the sample whiteboard): a full-size phone photo (4032×2520, 308 KB) took 4,029 input tokens and 25.1 s to read; Cloudinary's 1600 px copy (110 KB) took 2,081 tokens and 6.5 s, with the same transcription. The resize is the measurable win: on a hosted model, half the input tokens is also half the cost and quota. The contrast and sharpening steps made no consistent difference to OCR accuracy in our tests (one photo improved from 21/24 to 24/24 words, another went the other way), so we don't claim they do.
 3. **Thumbnail:** `c_fill,g_auto,w_160,h_120`, a smart crop for lists.
 
 Ways to verify it yourself:

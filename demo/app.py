@@ -98,10 +98,10 @@ def cloudinary_panel(p: dict) -> None:
         return
     clean = lambda u: (u or "").split("?")[0]  # noqa: E731  (drop the SDK analytics suffix)
     original, prepared, thumb = cld["secureUrl"], clean(p.get("analysisUrl") or p["previewUrl"]), clean(p["thumbUrl"])
-    st.subheader("Cloudinary cleaned up the photo for the AI")
+    st.subheader("Cloudinary prepared the photo for the AI")
     a, b = st.columns(2)
     a.image(original, caption="Your photo")
-    b.image(prepared, caption="Cloudinary's copy: brighter, sharper. This is what the AI read.")
+    b.image(prepared, caption="Cloudinary's copy: resized, brighter, sharper. This is what the AI read.")
 
     with st.expander("How Cloudinary did it"):
         sizes = [image_bytes(u) for u in (original, prepared, thumb)]

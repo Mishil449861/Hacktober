@@ -80,13 +80,13 @@ class PhotoTour(unittest.TestCase):
         at = self.run_page(with_photo=True)
         self.assertFalse(at.exception, at.exception)
         headings = [s.value for s in at.subheader]
-        self.assertEqual(headings[:2], ["To-do list", "Cloudinary cleaned up the photo for the AI"], "results, then the photo")
+        self.assertEqual(headings[:2], ["To-do list", "Cloudinary prepared the photo for the AI"], "results, then the photo")
         self.assertNotIn("Decisions", headings, "no empty sections")
         self.assertNotIn("Who's who", headings, "no reporting lines, no chart")
         # The details are behind expanders, collapsed.
         how = next(e for e in at.expander if e.label == "How Cloudinary did it")
         table = "\n".join(m.value for m in how.markdown)
-        for words in ("`e_improve`", "`e_sharpen:60`", "contrast"):
+        for words in ("`e_improve`", "`e_sharpen:60`", "contrast", "4 times longer"):
             self.assertIn(words, table)
         self.assertIn(ANALYSIS.split("?")[0], [c.value for c in how.code])
         read = next(e for e in at.expander if e.label == "What the AI read from the photo")

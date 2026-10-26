@@ -31,15 +31,16 @@ def explain(step: str) -> str:
     dims = [p[k] for k in ("w", "h") if k in p]
     size = f"{' × '.join(dims)} px" if dims else ""
     if p.get("c") == "limit":
-        return f"Shrinks the photo to fit within {size or 'the given size'}, never enlarging it: faster to send, still sharp enough for handwriting"
+        return (f"Shrinks the photo to fit within {size or 'the given size'}, never enlarging it. In our test, a full-size "
+                "phone photo took the AI about 4 times longer to read than this copy (twice the input), with the same result")
     if p.get("c") == "fill":
         where = "around the most important part of the image (Cloudinary decides where: g_auto)" if p.get("g") == "auto" else "to fill the frame"
         return f"Crops to exactly {size} {where}"
     if "e" in p:
         effect, _, amount = p["e"].partition(":")
         return {
-            "improve": "Automatically improves contrast and colour, so grey ink and whiteboard glare read more clearly",
-            "sharpen": f"Sharpens edges{f' (strength {amount})' if amount else ''}, so pen strokes are crisper for the text reader",
+            "improve": "Automatically adjusts contrast and colour: a dim, grey photo comes out brighter",
+            "sharpen": f"Sharpens edges{f' (strength {amount})' if amount else ''}",
         }.get(effect, f"Applies the {effect} effect")
     fmt, quality = p.get("f"), p.get("q")
     if fmt or quality:
