@@ -386,6 +386,7 @@ The graph editor at `http://localhost:5173` shows the full map behind the to-do 
 | `api_secret mismatch` from Cloudinary | Re-copy the secret with the console's copy button: `I` and `l` look identical in its font. |
 | A step takes minutes | The model is running on CPU. Check `ollama ps`. |
 | A to-do is wrong or missing | Read its extraction trace (see [Testing](#testing)) to find the stage that got it wrong. |
+| "The photo … couldn't be read" | The box says why. "answered 429" or "answered 503" means the AI provider was rate-limited or overloaded (common on Gemini's free tier; the server already retried 3 times): press **Try again** in a minute. "answered 401/403" means the key no longer works. "The server restarted before this was read" means the online demo restarted mid-read: press **Try again**. |
 | Node crashes with *out of memory* | Close other heavy apps and keep `OLLAMA_UNLOAD_ON_SWITCH=true`. |
 | "Disk is full: changes are not being saved" | Free up disk space; the server keeps running in the meantime. |
 | Phone can't open the capture page | Same Wi-Fi? Allow Node through the firewall, and use the IP the server prints, not `localhost`. |

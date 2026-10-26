@@ -92,20 +92,13 @@ def ai_fields() -> dict:
     return {"ai_provider": k["provider"], "ai_key": k["key"], "ai_model": k["model"]} if k else {}
 
 
-def read(ws_id: str, date: dt.date, text: str = "", photo: tuple | None = None) -> bool:
-    stamp = time.strftime("%H:%M:%S")
-    try:
-        if text.strip():
-            api("POST", f"/api/workspaces/{ws_id}/sources",
-                data={"text": text, "name": f"Notes {stamp}", "date": date.isoformat(), **ai_fields()})
-        if photo:
-            api("POST", f"/api/workspaces/{ws_id}/sources", data={"date": date.isoformat(), **ai_fields()}, files={"files": photo})
-    except Exception as e:  # noqa: BLE001  (server said no, timed out, or is restarting)
-        st.error(f"Couldn't add that: {error_text(e)}")
-        return False
-    where = "with your AI key" if ai_key() else "on this laptop"
-    with st.spinner(f"Reading {where}… usually 15 to 40 seconds, about a minute for a photo. "
-                    "If other people are adding notes at the same time, yours waits its turn."):
+def wait_for(ws_id: str, ids: set[str]) -> bool:
+    """Wait until these sources are read (or failed). Only these: another input stuck elsewhere on the board
+    must not hold this one up."""
+    where = ("with your AI key… usually 15 to 40 seconds, about a minute for a photo." if ai_key() else
+             "on this laptop… usually 15 to 40 seconds, about a minute for a photo. "
+             "If other people are adding notes at the same time, yours waits its turn.")
+    with st.spinner(f"Reading {where}"):
         deadline = time.time() + 600
         while time.time() < deadline:
             time.sleep(1.5)
@@ -113,10 +106,27 @@ def read(ws_id: str, date: dt.date, text: str = "", photo: tuple | None = None) 
                 s = api("GET", f"/api/workspaces/{ws_id}")
             except Exception:  # noqa: BLE001  (one slow answer while the server is busy: just ask again)
                 continue
-            if not any(x["status"] in ("ANALYZING", "PENDING") for x in s["sources"]):
+            if not any(x["id"] in ids and x["status"] in ("ANALYZING", "PENDING") for x in s["sources"]):
                 return True
     st.warning("Still reading after 10 minutes. It will appear on the board when done: refresh the page later.")
     return False
+
+
+def read(ws_id: str, date: dt.date, text: str = "", photo: tuple | None = None) -> bool:
+    stamp = time.strftime("%H:%M:%S")
+    ids: set[str] = set()
+    try:
+        if text.strip():
+            ids |= {s["id"] for s in api("POST", f"/api/workspaces/{ws_id}/sources",
+                                         data={"text": text, "name": f"Notes {stamp}", "date": date.isoformat(), **ai_fields()})}
+        if photo:
+            ids |= {s["id"] for s in api("POST", f"/api/workspaces/{ws_id}/sources",
+                                         data={"date": date.isoformat(), **ai_fields()}, files={"files": photo})}
+    except Exception as e:  # noqa: BLE001  (server said no, timed out, or is restarting)
+        st.error(f"Couldn't add that: {error_text(e)}")
+        if not ids:
+            return False
+    return wait_for(ws_id, ids)
 
 
 def ai_panel(providers: list[dict], required: bool) -> None:
@@ -182,22 +192,17 @@ except Exception:  # noqa: BLE001
 HOSTED = os.environ.get("ORGMAP_HOSTED", "").strip().lower() in ("1", "true", "yes")
 
 
-@st.cache_resource(show_spinner=False)
-def boot_server() -> bool:
-    """Hosted copy: start the server inside this container, once. A failure raises, so it's retried next visit."""
-    ensure_server(API)
-    return True
-
-
 try:
     status = api("GET", "/api/status")
 except Exception:  # noqa: BLE001
     if not HOSTED:
         st.error("The OrgMap server isn't running. Start it with `npm run dev`, then refresh this page.")
         st.stop()
+    # Hosted copy: start the server inside this container. Not cached: if the server stops later (e.g. out of
+    # memory), the next visit starts it again. ensure_server does nothing when it already answers.
     with st.spinner("Starting OrgMap… the first visit after a quiet spell takes 1 to 3 minutes."):
         try:
-            boot_server()
+            ensure_server(API)
             status = api("GET", "/api/status")
         except Exception as e:  # noqa: BLE001
             st.error(f"OrgMap couldn't start: {e}. Refresh the page in a minute to try again.")
@@ -264,7 +269,8 @@ views = api("GET", f"/api/workspaces/{ws_id}/views")
 sources = state["sources"]
 done = [c for c in views["changes"] if c["status"] == "DONE"]
 failed = [c for c in views["changes"] if c["status"] == "ERROR"]
-stage = len(views["changes"])  # sources read so far; drives the example's steps
+# Inputs read (or being read) so far; drives the example's steps. A failed one doesn't count: its step stays.
+stage = len(views["changes"]) - len(failed)
 items = views.get("actionItems") or []
 guided = example and stage < 3
 
@@ -292,8 +298,13 @@ if flash := st.session_state.pop("flash", None):
 latest_src = max(sources, key=lambda s: s.get("createdAt") or "", default=None)
 if latest_src and "failed" in (latest_src.get("analyzedWith") or ""):
     why = next((a for a in latest_src.get("ambiguities") or [] if "failed (" in a), "")
-    st.warning("The AI couldn't be used for your latest input, so only the parts written in a fixed format "
-               "(like \"Name: task by Friday\") were picked up." + (f"\n\nWhat the AI said: {md_text(why)}" if why else "")
+    if "vision failed" in latest_src["analyzedWith"]:
+        what = ("The AI couldn't look at your latest photo, so its text was read off the image instead (OCR). "
+                "Handwriting and the page's layout may have been missed.")
+    else:
+        what = ("The AI couldn't be used for your latest input, so only the parts written in a fixed format "
+                "(like \"Name: task by Friday\") were picked up.")
+    st.warning(what + (f"\n\nWhat the AI said: {md_text(why)}" if why else "")
                + ("\n\nCheck your key above, or try again in a minute." if need_key else ""))
 
 # ---- results
@@ -415,8 +426,30 @@ if stage or items:
             st.info("This photo was stored on the server itself, because Cloudinary isn't configured. Add the three "
                     "`CLOUDINARY_…` values to `.env` (or the app's secrets) and restart to store and prepare photos with Cloudinary.")
 
-if failed:
-    st.warning("One of the inputs couldn't be read. Try adding it again, or type the to-dos into the table above.")
+# Inputs the AI couldn't read: say which and why, and offer to read it again (with the current key) or remove it.
+for f in failed:
+    src = next((s for s in sources if s["id"] == f["sourceId"]), {})
+    what = "The photo" if f["type"] == "IMAGE" else "The notes"
+    with st.container(border=True):
+        st.warning(f"{what} \"{md_text(f['name'])}\" couldn't be read."
+                   + (f"\n\nWhy: {md_text(src['error'][:400])}" if src.get("error") else "")
+                   + "\n\nTry again, or type the to-dos into the table above.")
+        c1, c2 = st.columns(2)
+        if c1.button("Try again", key=f"retry-{f['sourceId']}", disabled=blocked, width="stretch"):
+            try:
+                api("POST", f"/api/sources/{f['sourceId']}/analyze", data=ai_fields())
+            except Exception as e:  # noqa: BLE001
+                st.error(f"Couldn't try again: {error_text(e)}")
+            else:
+                wait_for(ws_id, {f["sourceId"]})
+                st.rerun()
+        if c2.button("Remove it", key=f"remove-{f['sourceId']}", width="stretch"):
+            try:
+                api("DELETE", f"/api/sources/{f['sourceId']}")
+            except Exception as e:  # noqa: BLE001
+                st.error(f"Couldn't remove it: {error_text(e)}")
+            else:
+                st.rerun()
 st.divider()
 
 # ---- input: the example's guided steps, or free notes

@@ -1,0 +1,259 @@
+[
+  {
+    "stage": "input",
+    "data": {
+      "name": "Notes 21:59:09",
+      "type": "TEXT",
+      "meetingDate": "2026-10-25",
+      "text": "Ben has booked the venue. Done.\nChloe joins the team and reports to Maya.\n- Chloe: order the catering by Nov 3\n- Decision: lunch will be catered.\n- Sending the invitations is now due two days later"
+    }
+  },
+  {
+    "stage": "notes-parser",
+    "data": {
+      "input": "text",
+      "nodes": [
+        "TASK Book the venue [DONE]",
+        "PERSON Chloe",
+        "PERSON Maya",
+        "TASK Order the catering @2026-11-03 [OPEN]",
+        "DECISION Lunch will be catered @2026-10-25",
+        "TASK Send the invitations @2026-11-01"
+      ],
+      "edges": [
+        "Chloe -REPORTS_TO-> Maya",
+        "Chloe -RESPONSIBLE_FOR-> Order the catering"
+      ],
+      "covers": [
+        "TASK",
+        "DECISION"
+      ]
+    }
+  },
+  {
+    "stage": "model.raw",
+    "data": "{\n  \"summary\": \"Ben completed booking the venue, and Chloe joined reporting to Maya with a task to order catering. The invitation task was postponed by two days, and lunch was decided to be catered.\",\n  \"nodes\": [\n    {\n      \"temporaryId\": \"n1\",\n      \"label\": \"Ben\",\n      \"type\": \"PERSON\",\n      \"confidence\": 1.0\n    },\n    {\n      \"temporaryId\": \"n2\",\n      \"label\": \"Book the venue\",\n      \"type\": \"TASK\",\n      \"status\": \"DONE\",\n      \"confidence\": 1.0\n    },\n    {\n      \"temporaryId\": \"n3\",\n      \"label\": \"Chloe\",\n      \"type\": \"PERSON\",\n      \"confidence\": 1.0\n    },\n    {\n      \"temporaryId\": \"n4\",\n      \"label\": \"Maya\",\n      \"type\": \"PERSON\",\n      \"confidence\": 1.0\n    },\n    {\n      \"temporaryId\": \"n5\",\n      \"label\": \"Order the catering\",\n      \"type\": \"TASK\",\n      \"status\": \"OPEN\",\n      \"owner\": \"Chloe\",\n      \"confidence\": 1.0\n    },\n    {\n      \"temporaryId\": \"n6\",\n      \"label\": \"Lunch will be catered\",\n      \"type\": \"DECISION\",\n      \"confidence\": 1.0\n    },\n    {\n      \"temporaryId\": \"n7\",\n      \"label\": \"Send the invitations\",\n      \"type\": \"TASK\",\n      \"status\": \"OPEN\",\n      \"confidence\": 1.0\n    }\n  ],\n  \"edges\": [\n    {\n      \"sourceTemporaryId\": \"n1\",\n      \"targetTemporaryId\": \"n2\",\n      \"relationship\": \"RESPONSIBLE_FOR\",\n      \"confidence\": 0.95\n    },\n    {\n      \"sourceTemporaryId\": \"n3\",\n      \"targetTemporaryId\": \"n4\",\n      \"relationship\": \"REPORTS_TO\",\n      \"confidence\": 1.0\n    },\n    {\n      \"sourceTemporaryId\": \"n3\",\n      \"targetTemporaryId\": \"n5\",\n      \"relationship\": \"RESPONSIBLE_FOR\",\n      \"confidence\": 0.95\n    }\n  ],\n  \"ambiguities\": []\n}"
+  },
+  {
+    "stage": "model.validated",
+    "data": {
+      "summary": "Ben completed booking the venue, and Chloe joined reporting to Maya with a task to order catering. The invitation task was postponed by two days, and lunch was decided to be catered.",
+      "nodes": [
+        {
+          "temporaryId": "n1",
+          "label": "Ben",
+          "type": "PERSON",
+          "confidence": 1
+        },
+        {
+          "temporaryId": "n2",
+          "label": "Book the venue",
+          "type": "TASK",
+          "status": "DONE",
+          "confidence": 1
+        },
+        {
+          "temporaryId": "n3",
+          "label": "Chloe",
+          "type": "PERSON",
+          "confidence": 1
+        },
+        {
+          "temporaryId": "n4",
+          "label": "Maya",
+          "type": "PERSON",
+          "confidence": 1
+        },
+        {
+          "temporaryId": "n5",
+          "label": "Order the catering",
+          "type": "TASK",
+          "status": "OPEN",
+          "owner": "Chloe",
+          "confidence": 1
+        },
+        {
+          "temporaryId": "n6",
+          "label": "Lunch will be catered",
+          "type": "DECISION",
+          "confidence": 1
+        },
+        {
+          "temporaryId": "n7",
+          "label": "Send the invitations",
+          "type": "TASK",
+          "status": "OPEN",
+          "confidence": 1
+        }
+      ],
+      "edges": [
+        {
+          "sourceTemporaryId": "n1",
+          "targetTemporaryId": "n2",
+          "relationship": "RESPONSIBLE_FOR",
+          "confidence": 0.95
+        },
+        {
+          "sourceTemporaryId": "n3",
+          "targetTemporaryId": "n4",
+          "relationship": "REPORTS_TO",
+          "confidence": 1
+        },
+        {
+          "sourceTemporaryId": "n3",
+          "targetTemporaryId": "n5",
+          "relationship": "RESPONSIBLE_FOR",
+          "confidence": 0.95
+        }
+      ],
+      "ambiguities": []
+    }
+  },
+  {
+    "stage": "final",
+    "data": {
+      "summary": "Ben completed booking the venue, and Chloe joined reporting to Maya with a task to order catering. The invitation task was postponed by two days, and lunch was decided to be catered.",
+      "nodes": [
+        {
+          "temporaryId": "n1",
+          "label": "Ben",
+          "type": "PERSON",
+          "confidence": 1
+        },
+        {
+          "temporaryId": "p1",
+          "label": "Book the venue",
+          "type": "TASK",
+          "confidence": 0.95,
+          "status": "DONE"
+        },
+        {
+          "temporaryId": "p2",
+          "label": "Chloe",
+          "type": "PERSON",
+          "confidence": 0.95
+        },
+        {
+          "temporaryId": "p3",
+          "label": "Maya",
+          "type": "PERSON",
+          "confidence": 0.95
+        },
+        {
+          "temporaryId": "p4",
+          "label": "Order the catering",
+          "type": "TASK",
+          "confidence": 0.95,
+          "date": "2026-11-03",
+          "status": "OPEN"
+        },
+        {
+          "temporaryId": "p5",
+          "label": "Lunch will be catered",
+          "type": "DECISION",
+          "confidence": 0.95,
+          "date": "2026-10-25"
+        },
+        {
+          "temporaryId": "p6",
+          "label": "Send the invitations",
+          "type": "TASK",
+          "confidence": 0.95,
+          "date": "2026-11-01"
+        }
+      ],
+      "edges": [
+        {
+          "sourceTemporaryId": "p2",
+          "targetTemporaryId": "p3",
+          "relationship": "REPORTS_TO",
+          "confidence": 0.95
+        },
+        {
+          "sourceTemporaryId": "p2",
+          "targetTemporaryId": "p4",
+          "relationship": "RESPONSIBLE_FOR",
+          "confidence": 0.95
+        }
+      ],
+      "ambiguities": []
+    }
+  },
+  {
+    "stage": "merge",
+    "data": {
+      "created": 3,
+      "matched": 4,
+      "uncertain": 0,
+      "edgesAdded": 2,
+      "edgesReinforced": 0
+    }
+  },
+  {
+    "stage": "views.actionItems",
+    "data": [
+      {
+        "id": "33abd737-a324-4e6e-94f6-0c4fba19fcbe",
+        "label": "Send the invitations",
+        "description": null,
+        "owners": [
+          "Maya"
+        ],
+        "due": "2026-11-01",
+        "status": "OPEN",
+        "overdue": false,
+        "raisedOn": "2026-10-22",
+        "raisedIn": "Notes 17:14:03",
+        "lastUpdate": {
+          "on": "2026-10-25",
+          "in": "Notes 21:59:09"
+        },
+        "meetings": [
+          "Notes 17:14:03",
+          "Notes 21:59:09"
+        ]
+      },
+      {
+        "id": "d9955658-aeee-4c80-b736-0de448ff8ea1",
+        "label": "Order the catering",
+        "description": null,
+        "owners": [
+          "Chloe"
+        ],
+        "due": "2026-11-03",
+        "status": "OPEN",
+        "overdue": false,
+        "raisedOn": "2026-10-25",
+        "raisedIn": "Notes 21:59:09",
+        "lastUpdate": {
+          "on": "2026-10-25",
+          "in": "Notes 21:59:09"
+        },
+        "meetings": [
+          "Notes 21:59:09"
+        ]
+      },
+      {
+        "id": "22c81e29-9933-4886-8386-d1878c170a12",
+        "label": "Book the venue",
+        "description": null,
+        "owners": [
+          "Ben"
+        ],
+        "due": "2026-10-27",
+        "status": "DONE",
+        "overdue": false,
+        "raisedOn": "2026-10-22",
+        "raisedIn": "Notes 17:14:03",
+        "lastUpdate": {
+          "on": "2026-10-25",
+          "in": "Notes 21:59:09"
+        },
+        "meetings": [
+          "Notes 17:14:03",
+          "Notes 21:59:09"
+        ]
+      }
+    ]
+  }
+]

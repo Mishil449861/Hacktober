@@ -187,6 +187,88 @@ test('plain everyday notes: natural dates, "X will ...", and a later "has booked
   assert.ok(edge(third, 'Sam', 'RESPONSIBLE_FOR', 'Write the agenda'))
 })
 
+test('a report in the to-do\'s own verb ticks it off: "Linh has tested the database", "Linh finished testing"', () => {
+  const known: KnownEntity[] = [
+    { label: 'Test database', type: 'TASK', status: 'OPEN', owners: ['Linh'] },
+    { label: 'API setup', type: 'TASK', status: 'OPEN', owners: ['Mishil'] },
+    { label: 'Book the venue', type: 'TASK', status: 'OPEN', owners: ['Ben'] },
+    { label: 'Product research', type: 'TASK', status: 'OPEN', owners: ['Jen'] },
+  ]
+  const done = (text: string) => parseMinutes(text, { meetingDate: '2026-10-24', knownEntities: known })
+    .nodes.filter((n) => n.type === 'TASK' && n.status === 'DONE').map((n) => n.label)
+  // The update typed on the test board (2026-10-24): only the first line was caught.
+  assert.deepEqual(done('- The API setup is now done\n- Linh has tested the database'), ['API setup', 'Test database'])
+  assert.deepEqual(done('Linh finished testing'), ['Test database'], 'whose testing it is says which to-do')
+  assert.deepEqual(done('Linh finished testing today.'), ['Test database'])
+  assert.deepEqual(done('Ben booked the venue.'), ['Book the venue'], 'no "Done." needed')
+  assert.deepEqual(done('Jen has researched the product'), ['Product research'])
+  // Not reports of done work.
+  assert.deepEqual(done("Linh hasn't tested the database yet"), [])
+  assert.deepEqual(done('Linh will test the database by Friday'), [])
+  assert.deepEqual(done('Linh tested the login page'), [], 'a different thing tested is not her database to-do')
+  assert.deepEqual(done('Ben finished testing'), [], 'Ben has no testing to-do')
+  assert.deepEqual(done('Linh has started testing the database'), [], 'started is in progress, not done')
+})
+
+test('due dates as typed on the test board: "due on Oct 24, 2026", "which is due next thursday", "tasked with"', () => {
+  const tasks = (text: string) => {
+    const p = parseMinutes(text, { meetingDate: '2026-10-24' })
+    return labels(p, 'TASK').map((t) => `${t.label} | ${p.edges.filter((e) => e.targetTemporaryId === t.temporaryId)
+      .map((e) => p.nodes.find((n) => n.temporaryId === e.sourceTemporaryId)?.label).join(',')} | ${t.date ?? ''}`)
+  }
+  // 2026-10-24 is a Saturday: the due date can be the meeting day itself.
+  assert.deepEqual(tasks('- New member on the team (Jim) tasked with UI design due on Oct 24, 2026'), ['UI design | Jim | 2026-10-24'])
+  assert.deepEqual(tasks('- A new member has joined the project (Ham) is tasked with running live demo tests which is due next thursday'),
+    ['Running live demo tests | Ham | 2026-10-29'])
+  assert.deepEqual(tasks('- Jen: update the branding due on Oct 30'), ['Update the branding | Jen | 2026-10-30'])
+  assert.deepEqual(tasks('Maya is in charge of the venue by Friday'), ['The venue | Maya | 2026-10-30'])
+})
+
+test('a known date moved by an amount: "2 days later", "pushed back by a week", "brought forward by 3 days"', () => {
+  const known: KnownEntity[] = [
+    { label: 'API setup', type: 'TASK', status: 'OPEN', date: '2026-10-30', owners: ['Mishil'] },
+    { label: 'Beta launch', type: 'MILESTONE', status: 'OPEN', date: '2026-11-05' },
+  ]
+  const dateOf = (text: string, label: string) =>
+    parseMinutes(text, { meetingDate: '2026-10-24', knownEntities: known }).nodes.find((n) => n.label === label)?.date
+  assert.equal(dateOf('- API set up is now due 2 days later', 'API setup'), '2026-11-01')
+  assert.equal(dateOf('- The API setup has an updated deadline being 2 days later', 'API setup'), '2026-11-01')
+  assert.equal(dateOf('The beta launch was pushed back by a week.', 'Beta launch'), '2026-11-12')
+  assert.equal(dateOf('Beta launch brought forward by 3 days', 'Beta launch'), '2026-11-02')
+  assert.equal(dateOf('- Book the venue 2 days later', 'API setup'), undefined, 'only the item the line names moves')
+})
+
+test('"Linh has completed all of her tasks" ticks off her open to-dos only', () => {
+  const known: KnownEntity[] = [
+    { label: 'Test database', type: 'TASK', status: 'OPEN', owners: ['Linh'] },
+    { label: 'Linh (frontend)', type: 'TASK', status: 'OPEN', owners: ['Linh'] },
+    { label: 'API setup', type: 'TASK', status: 'OPEN', owners: ['Mishil'] },
+  ]
+  const done = (text: string) => parseMinutes(text, { meetingDate: '2026-10-24', knownEntities: known })
+    .nodes.filter((n) => n.type === 'TASK' && n.status === 'DONE').map((n) => n.label)
+  assert.deepEqual(done('- Linh has completed all of her tasks'), ['Test database', 'Linh (frontend)'])
+  assert.deepEqual(done('Linh is done with all her tasks.'), ['Test database', 'Linh (frontend)'])
+  assert.deepEqual(done("Linh hasn't completed all of her tasks"), [])
+})
+
+test('a project line over "- Name (role)" is the team, not one person\'s to-dos', () => {
+  // The vision transcript of the hackathon photo on the test board (2026-10-24).
+  const p = parseMinutes([
+    'Hackathon Project', '- Shriya (design)', '- Mishil (backend)', '- Linh (frontend)', '',
+    'Mishil:', '- API setup', '  due: Friday', '', 'Linh:', '- Test database',
+  ].join('\n'), { meetingDate: '2026-10-24', photo: true })
+  assert.deepEqual(labels(p, 'TASK').map((t) => t.label), ['API setup', 'Test database'])
+  assert.deepEqual(labels(p, 'PROJECT').map((t) => t.label), ['Hackathon Project'])
+  assert.equal(p.nodes.some((n) => n.type === 'PERSON' && n.label === 'Hackathon Project'), false)
+  assert.equal(p.nodes.find((n) => n.label === 'Shriya')?.description, 'design')
+  assert.ok(edge(p, 'Linh', 'PART_OF', 'Hackathon Project'))
+  assert.ok(edge(p, 'Linh', 'RESPONSIBLE_FOR', 'Test database'))
+  // Without a project line, "(Ben)" after an item is still its owner.
+  const q = parseMinutes('Maya:\n- Logo (Ben)\n- Banner (draft)', { meetingDate: '2026-10-24' })
+  assert.deepEqual(labels(q, 'TASK').map((t) => t.label), ['Logo', 'Banner (draft)'])
+  assert.ok(edge(q, 'Ben', 'RESPONSIBLE_FOR', 'Logo'))
+})
+
 test('combineWithModel: the model cannot add owners to an action item the notes already assign', () => {
   const text = 'Ben reports to Maya.\n- Maya: send the invitations by Oct 10'
   const parsed = parseMinutes(text, { meetingDate: '2026-10-06' })

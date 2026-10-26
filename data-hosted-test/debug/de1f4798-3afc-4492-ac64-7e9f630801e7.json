@@ -1,0 +1,99 @@
+[
+  {
+    "stage": "input",
+    "data": {
+      "name": "Notes 23:15:27",
+      "type": "TEXT",
+      "meetingDate": "2026-10-24",
+      "text": "- API set up is now due 2 days later \n"
+    }
+  },
+  {
+    "stage": "notes-parser",
+    "data": {
+      "input": "text",
+      "nodes": [],
+      "edges": [],
+      "covers": []
+    }
+  },
+  {
+    "stage": "model.raw",
+    "data": "{\n  \"summary\": \"The due date for the API setup task has been extended by two days.\",\n  \"nodes\": [\n    {\n      \"temporaryId\": \"n1\",\n      \"label\": \"API setup\",\n      \"type\": \"TASK\",\n      \"status\": \"OPEN\",\n      \"confidence\": 0.95\n    }\n  ],\n  \"edges\": [],\n  \"ambiguities\": [\n    \"Original due date not specified, so new due date could not be calculated exactly.\"\n  ]\n}"
+  },
+  {
+    "stage": "model.validated",
+    "data": {
+      "summary": "The due date for the API setup task has been extended by two days.",
+      "nodes": [
+        {
+          "temporaryId": "n1",
+          "label": "API setup",
+          "type": "TASK",
+          "status": "OPEN",
+          "confidence": 0.95
+        }
+      ],
+      "edges": [],
+      "ambiguities": [
+        "Original due date not specified, so new due date could not be calculated exactly."
+      ]
+    }
+  },
+  {
+    "stage": "final",
+    "data": {
+      "summary": "The due date for the API setup task has been extended by two days.",
+      "nodes": [
+        {
+          "temporaryId": "n1",
+          "label": "API setup",
+          "type": "TASK",
+          "status": "OPEN",
+          "confidence": 0.95
+        }
+      ],
+      "edges": [],
+      "ambiguities": [
+        "Original due date not specified, so new due date could not be calculated exactly."
+      ]
+    }
+  },
+  {
+    "stage": "merge",
+    "data": {
+      "created": 0,
+      "matched": 1,
+      "uncertain": 0,
+      "edgesAdded": 0,
+      "edgesReinforced": 0
+    }
+  },
+  {
+    "stage": "views.actionItems",
+    "data": [
+      {
+        "id": "d8e74930-1ed2-479a-b762-187953e4953b",
+        "label": "API setup",
+        "description": null,
+        "owners": [
+          "Mishil"
+        ],
+        "due": "2026-10-30",
+        "status": "OPEN",
+        "overdue": false,
+        "raisedOn": "2026-10-24",
+        "raisedIn": "IMG_5705.JPG",
+        "lastUpdate": {
+          "on": "2026-10-24",
+          "in": "Notes 23:15:27"
+        },
+        "meetings": [
+          "IMG_5705.JPG",
+          "Notes 23:13:03",
+          "Notes 23:15:27"
+        ]
+      }
+    ]
+  }
+]

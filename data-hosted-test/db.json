@@ -1,0 +1,1125 @@
+{
+  "workspaces": [
+    {
+      "id": "f57474c4-6769-435f-b38c-b218efa98ed1",
+      "name": "My Board · 557f",
+      "createdAt": "2026-10-25T03:10:58.722Z"
+    },
+    {
+      "id": "a97cb4c6-967f-4828-acfd-9752f7df0d6f",
+      "name": "My board · 8582",
+      "createdAt": "2026-10-25T21:07:55.391Z"
+    },
+    {
+      "id": "ad4126f9-1ede-45f2-b16b-917989288ed5",
+      "name": "Example board · c1e2",
+      "createdAt": "2026-10-25T21:14:01.710Z"
+    }
+  ],
+  "sources": [
+    {
+      "workspaceId": "f57474c4-6769-435f-b38c-b218efa98ed1",
+      "status": "DONE",
+      "createdAt": "2026-10-25T03:11:10.054Z",
+      "meetingDate": "2026-10-24",
+      "id": "4720699e-9677-47b9-aef6-ee22257a491f",
+      "type": "IMAGE",
+      "name": "IMG_5705.JPG",
+      "cloudinary": {
+        "publicId": "orgmap/f57474c4-6769-435f-b38c-b218efa98ed1/poqkhqxnh6ius9nuiik0",
+        "assetId": "c17f7811ea9cab3c05e1635f4f91b76b",
+        "secureUrl": "https://res.cloudinary.com/ygidaetg/image/upload/v1792897871/orgmap/f57474c4-6769-435f-b38c-b218efa98ed1/poqkhqxnh6ius9nuiik0.jpg",
+        "width": 3024,
+        "height": 4032,
+        "format": "jpg",
+        "createdAt": "2026-10-25T03:11:11Z"
+      },
+      "previewUrl": "https://res.cloudinary.com/ygidaetg/image/upload/c_limit,w_1200/f_auto,q_auto/v1/orgmap/f57474c4-6769-435f-b38c-b218efa98ed1/poqkhqxnh6ius9nuiik0?_a=BAMARORk0",
+      "thumbUrl": "https://res.cloudinary.com/ygidaetg/image/upload/c_fill,g_auto,h_120,w_160/f_auto,q_auto/v1/orgmap/f57474c4-6769-435f-b38c-b218efa98ed1/poqkhqxnh6ius9nuiik0?_a=BAMARORk0",
+      "analysisUrl": "https://res.cloudinary.com/ygidaetg/image/upload/c_limit,h_1600,w_1600/e_improve/e_sharpen:60/f_jpg,q_90/v1/orgmap/f57474c4-6769-435f-b38c-b218efa98ed1/poqkhqxnh6ius9nuiik0?_a=BAMARORk0",
+      "summary": "Team structure and task assignments for Hackathon Project, featuring roles for Shriya, Mishil, Sophia, Jen, and Linh, along with action items and a full team meeting scheduled on Sunday.",
+      "ambiguities": [
+        "Light bleeding/ghost text from the previous page is visible across the top and background."
+      ],
+      "ocrText": "Test\n\nHackathon Project\n- (design) Shriya\n- Mishil (backend)\n- Sophia (research)\n- Jen (product)\n- Linh (frontend)\n\nMishil:\n- API setup\ndue: Friday\n\nLinh:\n- Test database\n\nJen:\n- Product research\n- Find 2 similar products\n\nNOTE: Full team meeting on Sunday",
+      "analyzedWith": "gemini-3.8-flash + tesseract + notes parser (transcript)",
+      "analyzedAt": "2026-10-25T03:11:21.707Z"
+    },
+    {
+      "workspaceId": "f57474c4-6769-435f-b38c-b218efa98ed1",
+      "status": "DONE",
+      "createdAt": "2026-10-25T03:13:03.632Z",
+      "meetingDate": "2026-10-24",
+      "id": "e53948a9-88b6-4e19-be3f-66507f4aeac8",
+      "type": "TEXT",
+      "name": "Notes 23:13:03",
+      "text": "- Linh has completed all of her tasks\n- A new member has joined the project (Ham) is tasked with running live demo tests which is due next thursday \n- The API setup has an updated deadline being 2 days later\n",
+      "summary": "Linh completed all her tasks, and a new member Ham joined to run live demo tests by next Thursday. The API setup task deadline was extended by two days.",
+      "ambiguities": [
+        "Meeting date 2026-10-24 is a Saturday; 'next thursday' could refer to 2026-10-29 or 2026-11-05.",
+        "The original due date for 'API setup' is unknown, so the updated date (+2 days) could not be resolved."
+      ],
+      "analyzedWith": "gemini-3.8-flash",
+      "analyzedAt": "2026-10-25T03:13:42.992Z"
+    },
+    {
+      "workspaceId": "f57474c4-6769-435f-b38c-b218efa98ed1",
+      "status": "DONE",
+      "createdAt": "2026-10-25T03:15:27.258Z",
+      "meetingDate": "2026-10-24",
+      "id": "de1f4798-3afc-4492-ac64-7e9f630801e7",
+      "type": "TEXT",
+      "name": "Notes 23:15:27",
+      "text": "- API set up is now due 2 days later \n",
+      "summary": "The due date for the API setup task has been extended by two days.",
+      "ambiguities": [
+        "Original due date not specified, so new due date could not be calculated exactly."
+      ],
+      "analyzedWith": "gemini-3.8-flash",
+      "analyzedAt": "2026-10-25T03:16:33.634Z"
+    },
+    {
+      "workspaceId": "f57474c4-6769-435f-b38c-b218efa98ed1",
+      "status": "DONE",
+      "createdAt": "2026-10-25T03:17:35.619Z",
+      "meetingDate": "2026-10-24",
+      "id": "367bc973-9108-40ad-a561-66b07e62695a",
+      "type": "TEXT",
+      "name": "Notes 23:17:35",
+      "text": "- Jen: Update project branding ",
+      "summary": "Jen was assigned the task to update project branding.",
+      "ambiguities": [],
+      "analyzedWith": "gemini-3.8-flash + minutes parser",
+      "analyzedAt": "2026-10-25T03:18:35.303Z"
+    },
+    {
+      "workspaceId": "f57474c4-6769-435f-b38c-b218efa98ed1",
+      "status": "DONE",
+      "createdAt": "2026-10-25T03:19:57.688Z",
+      "meetingDate": "2026-10-24",
+      "id": "ac452f89-3ec7-4707-b2e9-74a14ea5b6f3",
+      "type": "TEXT",
+      "name": "Notes 23:19:57",
+      "text": "- New member on the team (Jim) tasked with UI design due on Oct 24, 2026",
+      "summary": "Jim joined the team and was assigned the UI design task due on October 24, 2026.",
+      "ambiguities": [],
+      "analyzedWith": "gemini-3.8-flash",
+      "analyzedAt": "2026-10-25T03:21:45.739Z"
+    },
+    {
+      "workspaceId": "f57474c4-6769-435f-b38c-b218efa98ed1",
+      "status": "DONE",
+      "createdAt": "2026-10-25T03:44:47.803Z",
+      "meetingDate": "2026-10-24",
+      "id": "76918186-cb8c-459c-bf1d-d79e92c933ae",
+      "type": "TEXT",
+      "name": "Notes 23:44:47",
+      "text": "- API setup: moved from Oct 30 to Nov 1.\n- Update product branding now has a due date of  Nov 2, 2026",
+      "summary": "Updated due dates for API setup and product branding tasks.",
+      "ambiguities": [
+        "Input mentions 'Update product branding' which matches known entity 'Update project branding'; kept as written in text."
+      ],
+      "analyzedWith": "gemini-3.8-flash + minutes parser",
+      "analyzedAt": "2026-10-25T03:46:19.458Z"
+    },
+    {
+      "workspaceId": "a97cb4c6-967f-4828-acfd-9752f7df0d6f",
+      "status": "DONE",
+      "createdAt": "2026-10-25T21:08:08.313Z",
+      "meetingDate": "2026-10-25",
+      "id": "e22d7198-835b-4621-b0c5-79921128bd7c",
+      "type": "IMAGE",
+      "name": "IMG_5705.JPG",
+      "cloudinary": {
+        "publicId": "orgmap/a97cb4c6-967f-4828-acfd-9752f7df0d6f/juypcctpaakmqcxp9hgn",
+        "assetId": "0dd820f5f2ba15bf7fb53ac714c978fb",
+        "secureUrl": "https://res.cloudinary.com/ygidaetg/image/upload/v1792962492/orgmap/a97cb4c6-967f-4828-acfd-9752f7df0d6f/juypcctpaakmqcxp9hgn.jpg",
+        "width": 3024,
+        "height": 4032,
+        "format": "jpg",
+        "createdAt": "2026-10-25T21:08:12Z"
+      },
+      "previewUrl": "https://res.cloudinary.com/ygidaetg/image/upload/c_limit,w_1200/f_auto,q_auto/v1/orgmap/a97cb4c6-967f-4828-acfd-9752f7df0d6f/juypcctpaakmqcxp9hgn?_a=BAMARORk0",
+      "thumbUrl": "https://res.cloudinary.com/ygidaetg/image/upload/c_fill,g_auto,h_120,w_160/f_auto,q_auto/v1/orgmap/a97cb4c6-967f-4828-acfd-9752f7df0d6f/juypcctpaakmqcxp9hgn?_a=BAMARORk0",
+      "analysisUrl": "https://res.cloudinary.com/ygidaetg/image/upload/c_limit,h_1600,w_1600/e_improve/e_sharpen:60/f_jpg,q_90/v1/orgmap/a97cb4c6-967f-4828-acfd-9752f7df0d6f/juypcctpaakmqcxp9hgn?_a=BAMARORk0",
+      "summary": "Sprint or project task assignments for Linh, Jen, and Sophia across frontend, product, and design roles.",
+      "ambiguities": [
+        "Vision model failed (Google Gemini answered 503 (This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.)); the photo was read with OCR.",
+        "Heavily degraded OCR text around header elements ('wen) pH]', '12444', 'Shaya / Sophia (accent)').",
+        "'Test dotabare dver Frdad' is ambiguous; interpreted as testing database due Friday."
+      ],
+      "ocrText": "wen) pH]\n/ po\n| (design)\n12444 \\\n4 “9 eed ND Shaya\nLin Jen Sophia (accent)\n(Funtond) (podoch) eo) |\n| Linh ° APL SeHp |\n— Test dotabare dver Frdad |\n\\ A | Jen:\n\\ = Poodud- ve yea vtn\nL i ~fAnd 2 Similav produds\n5 > |\nJ |\n: |",
+      "analyzedWith": "tesseract + gemini-3.8-flash (vision failed)",
+      "analyzedAt": "2026-10-25T21:09:42.869Z"
+    },
+    {
+      "workspaceId": "ad4126f9-1ede-45f2-b16b-917989288ed5",
+      "status": "DONE",
+      "createdAt": "2026-10-25T21:14:03.539Z",
+      "meetingDate": "2026-10-22",
+      "id": "ed18c870-0ad3-4e16-88d7-1b48332e5b65",
+      "type": "TEXT",
+      "name": "Notes 17:14:03",
+      "text": "Maya is planning the team offsite. Ben reports to Maya.\n- Ben: book the venue by Oct 27\n- Maya: send the invitations by Oct 30\n- Decision: the offsite is on Nov 13.",
+      "summary": "Maya is planning the team offsite with Ben reporting to her. Tasks have been assigned to book the venue and send invitations, and the offsite date has been scheduled for November 13, 2026.",
+      "ambiguities": [],
+      "analyzedWith": "gemini-3.8-flash + minutes parser",
+      "analyzedAt": "2026-10-25T21:15:19.871Z"
+    },
+    {
+      "workspaceId": "ad4126f9-1ede-45f2-b16b-917989288ed5",
+      "status": "DONE",
+      "createdAt": "2026-10-26T01:59:09.751Z",
+      "meetingDate": "2026-10-25",
+      "id": "a516ace8-926c-4974-8609-311ac3a2402c",
+      "type": "TEXT",
+      "name": "Notes 21:59:09",
+      "text": "Ben has booked the venue. Done.\nChloe joins the team and reports to Maya.\n- Chloe: order the catering by Nov 3\n- Decision: lunch will be catered.\n- Sending the invitations is now due two days later",
+      "summary": "Ben completed booking the venue, and Chloe joined reporting to Maya with a task to order catering. The invitation task was postponed by two days, and lunch was decided to be catered.",
+      "ambiguities": [],
+      "analyzedWith": "gemini-3.8-flash + minutes parser",
+      "analyzedAt": "2026-10-26T02:02:52.518Z"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "8bd0d299-fd56-4815-af7a-a1b922595425",
+      "workspaceId": "f57474c4-6769-435f-b38c-b218efa98ed1",
+      "label": "Shriya",
+      "type": "PERSON",
+      "description": "design",
+      "aliases": [],
+      "confidence": 0.95,
+      "sourceIds": [
+        "4720699e-9677-47b9-aef6-ee22257a491f"
+      ],
+      "createdAt": "2026-10-25T03:11:21.706Z",
+      "updatedAt": "2026-10-25T03:11:21.706Z"
+    },
+    {
+      "id": "d10174cf-ba99-4d5a-966a-0048b242833f",
+      "workspaceId": "f57474c4-6769-435f-b38c-b218efa98ed1",
+      "label": "Full team meeting",
+      "type": "MILESTONE",
+      "aliases": [],
+      "confidence": 0.9,
+      "sourceIds": [
+        "4720699e-9677-47b9-aef6-ee22257a491f"
+      ],
+      "createdAt": "2026-10-25T03:11:21.706Z",
+      "updatedAt": "2026-10-25T03:11:21.706Z",
+      "history": [
+        {
+          "sourceId": "4720699e-9677-47b9-aef6-ee22257a491f",
+          "asOf": "2026-10-24",
+          "status": "OPEN",
+          "date": "2026-10-25"
+        }
+      ],
+      "status": "OPEN",
+      "date": "2026-10-25"
+    },
+    {
+      "id": "208a99f0-eaeb-4461-af52-6de5ddc5a282",
+      "workspaceId": "f57474c4-6769-435f-b38c-b218efa98ed1",
+      "label": "Test",
+      "type": "PERSON",
+      "aliases": [],
+      "confidence": 0.95,
+      "sourceIds": [
+        "4720699e-9677-47b9-aef6-ee22257a491f"
+      ],
+      "createdAt": "2026-10-25T03:11:21.706Z",
+      "updatedAt": "2026-10-25T03:11:21.706Z"
+    },
+    {
+      "id": "73bab916-e1ac-4c98-a877-2e9a813c2c48",
+      "workspaceId": "f57474c4-6769-435f-b38c-b218efa98ed1",
+      "label": "Hackathon Project",
+      "type": "PROJECT",
+      "aliases": [],
+      "confidence": 0.95,
+      "sourceIds": [
+        "4720699e-9677-47b9-aef6-ee22257a491f"
+      ],
+      "createdAt": "2026-10-25T03:11:21.706Z",
+      "updatedAt": "2026-10-25T03:11:21.706Z"
+    },
+    {
+      "id": "c74db106-24f9-4981-a315-025c669dfbf7",
+      "workspaceId": "f57474c4-6769-435f-b38c-b218efa98ed1",
+      "label": "Mishil",
+      "type": "PERSON",
+      "description": "backend",
+      "aliases": [],
+      "confidence": 0.95,
+      "sourceIds": [
+        "4720699e-9677-47b9-aef6-ee22257a491f"
+      ],
+      "createdAt": "2026-10-25T03:11:21.706Z",
+      "updatedAt": "2026-10-25T03:11:21.706Z"
+    },
+    {
+      "id": "23a15e58-dc33-4dee-abbb-683ac9670da3",
+      "workspaceId": "f57474c4-6769-435f-b38c-b218efa98ed1",
+      "label": "Sophia",
+      "type": "PERSON",
+      "description": "research",
+      "aliases": [],
+      "confidence": 0.95,
+      "sourceIds": [
+        "4720699e-9677-47b9-aef6-ee22257a491f"
+      ],
+      "createdAt": "2026-10-25T03:11:21.706Z",
+      "updatedAt": "2026-10-25T03:11:21.706Z"
+    },
+    {
+      "id": "7d95bd69-0c5d-419f-ae94-8f01a1b640a0",
+      "workspaceId": "f57474c4-6769-435f-b38c-b218efa98ed1",
+      "label": "Jen",
+      "type": "PERSON",
+      "description": "product",
+      "aliases": [],
+      "confidence": 0.95,
+      "sourceIds": [
+        "4720699e-9677-47b9-aef6-ee22257a491f",
+        "367bc973-9108-40ad-a561-66b07e62695a"
+      ],
+      "createdAt": "2026-10-25T03:11:21.706Z",
+      "updatedAt": "2026-10-25T03:18:35.303Z"
+    },
+    {
+      "id": "91547392-9099-43b3-9450-f16add38e51d",
+      "workspaceId": "f57474c4-6769-435f-b38c-b218efa98ed1",
+      "label": "Linh",
+      "type": "PERSON",
+      "description": "frontend",
+      "aliases": [],
+      "confidence": 0.95,
+      "sourceIds": [
+        "4720699e-9677-47b9-aef6-ee22257a491f",
+        "e53948a9-88b6-4e19-be3f-66507f4aeac8"
+      ],
+      "createdAt": "2026-10-25T03:11:21.706Z",
+      "updatedAt": "2026-10-25T03:13:42.992Z"
+    },
+    {
+      "id": "d8e74930-1ed2-479a-b762-187953e4953b",
+      "workspaceId": "f57474c4-6769-435f-b38c-b218efa98ed1",
+      "label": "API setup",
+      "type": "TASK",
+      "aliases": [],
+      "confidence": 0.95,
+      "sourceIds": [
+        "4720699e-9677-47b9-aef6-ee22257a491f",
+        "e53948a9-88b6-4e19-be3f-66507f4aeac8",
+        "de1f4798-3afc-4492-ac64-7e9f630801e7",
+        "76918186-cb8c-459c-bf1d-d79e92c933ae"
+      ],
+      "createdAt": "2026-10-25T03:11:21.706Z",
+      "updatedAt": "2026-10-25T03:46:19.458Z",
+      "history": [
+        {
+          "sourceId": "4720699e-9677-47b9-aef6-ee22257a491f",
+          "asOf": "2026-10-24",
+          "status": "OPEN",
+          "date": "2026-10-30"
+        },
+        {
+          "sourceId": "de1f4798-3afc-4492-ac64-7e9f630801e7",
+          "asOf": "2026-10-24",
+          "status": "OPEN"
+        },
+        {
+          "sourceId": "manual",
+          "asOf": "2026-10-25",
+          "status": "DONE"
+        },
+        {
+          "sourceId": "76918186-cb8c-459c-bf1d-d79e92c933ae",
+          "asOf": "2026-10-24",
+          "date": "2026-11-01"
+        }
+      ],
+      "status": "DONE",
+      "date": "2026-11-01"
+    },
+    {
+      "id": "729e67ec-5669-4ae6-a872-020c804e5628",
+      "workspaceId": "f57474c4-6769-435f-b38c-b218efa98ed1",
+      "label": "Test database",
+      "type": "TASK",
+      "aliases": [],
+      "confidence": 0.95,
+      "sourceIds": [
+        "4720699e-9677-47b9-aef6-ee22257a491f"
+      ],
+      "createdAt": "2026-10-25T03:11:21.706Z",
+      "updatedAt": "2026-10-25T03:17:17.962Z",
+      "history": [
+        {
+          "sourceId": "4720699e-9677-47b9-aef6-ee22257a491f",
+          "asOf": "2026-10-24",
+          "status": "OPEN"
+        },
+        {
+          "sourceId": "manual",
+          "asOf": "2026-10-25",
+          "status": "DONE"
+        }
+      ],
+      "status": "DONE"
+    },
+    {
+      "id": "0ebf5b06-12aa-4b96-9d46-11202c20363e",
+      "workspaceId": "f57474c4-6769-435f-b38c-b218efa98ed1",
+      "label": "Product research",
+      "type": "TASK",
+      "aliases": [],
+      "confidence": 0.95,
+      "sourceIds": [
+        "4720699e-9677-47b9-aef6-ee22257a491f"
+      ],
+      "createdAt": "2026-10-25T03:11:21.706Z",
+      "updatedAt": "2026-10-25T03:11:21.706Z",
+      "history": [
+        {
+          "sourceId": "4720699e-9677-47b9-aef6-ee22257a491f",
+          "asOf": "2026-10-24",
+          "status": "OPEN"
+        }
+      ],
+      "status": "OPEN"
+    },
+    {
+      "id": "32ae6e7e-0b3d-4941-89c4-237b2a1c637f",
+      "workspaceId": "f57474c4-6769-435f-b38c-b218efa98ed1",
+      "label": "Find 2 similar products",
+      "type": "TASK",
+      "aliases": [],
+      "confidence": 0.95,
+      "sourceIds": [
+        "4720699e-9677-47b9-aef6-ee22257a491f"
+      ],
+      "createdAt": "2026-10-25T03:11:21.706Z",
+      "updatedAt": "2026-10-25T03:11:21.706Z",
+      "history": [
+        {
+          "sourceId": "4720699e-9677-47b9-aef6-ee22257a491f",
+          "asOf": "2026-10-24",
+          "status": "OPEN"
+        }
+      ],
+      "status": "OPEN"
+    },
+    {
+      "id": "33a34ee2-c16b-4ef8-b5fb-9da6ace59f4b",
+      "workspaceId": "f57474c4-6769-435f-b38c-b218efa98ed1",
+      "label": "Ham",
+      "type": "PERSON",
+      "aliases": [],
+      "confidence": 0.95,
+      "sourceIds": [
+        "e53948a9-88b6-4e19-be3f-66507f4aeac8"
+      ],
+      "createdAt": "2026-10-25T03:13:42.992Z",
+      "updatedAt": "2026-10-25T03:13:42.992Z"
+    },
+    {
+      "id": "fc01e52d-3a57-4055-87b9-281cc4c98cfb",
+      "workspaceId": "f57474c4-6769-435f-b38c-b218efa98ed1",
+      "label": "Run live demo tests",
+      "type": "TASK",
+      "aliases": [],
+      "confidence": 0.95,
+      "sourceIds": [
+        "e53948a9-88b6-4e19-be3f-66507f4aeac8"
+      ],
+      "createdAt": "2026-10-25T03:13:42.992Z",
+      "updatedAt": "2026-10-25T03:13:42.992Z",
+      "history": [
+        {
+          "sourceId": "e53948a9-88b6-4e19-be3f-66507f4aeac8",
+          "asOf": "2026-10-24",
+          "status": "OPEN"
+        }
+      ],
+      "status": "OPEN"
+    },
+    {
+      "id": "e891e27f-0272-4f91-8b72-dc814a0f1d53",
+      "workspaceId": "f57474c4-6769-435f-b38c-b218efa98ed1",
+      "label": "Update project branding",
+      "type": "TASK",
+      "aliases": [],
+      "confidence": 0.95,
+      "sourceIds": [
+        "367bc973-9108-40ad-a561-66b07e62695a"
+      ],
+      "createdAt": "2026-10-25T03:18:35.303Z",
+      "updatedAt": "2026-10-25T03:18:35.303Z",
+      "history": [
+        {
+          "sourceId": "367bc973-9108-40ad-a561-66b07e62695a",
+          "asOf": "2026-10-24",
+          "status": "OPEN"
+        }
+      ],
+      "status": "OPEN"
+    },
+    {
+      "id": "24170b59-be56-4800-8d3a-35c215915c2f",
+      "workspaceId": "f57474c4-6769-435f-b38c-b218efa98ed1",
+      "label": "Jim",
+      "type": "PERSON",
+      "aliases": [],
+      "confidence": 1,
+      "sourceIds": [
+        "ac452f89-3ec7-4707-b2e9-74a14ea5b6f3"
+      ],
+      "createdAt": "2026-10-25T03:21:45.739Z",
+      "updatedAt": "2026-10-25T03:21:45.739Z"
+    },
+    {
+      "id": "1f179aec-6178-4faa-99a7-17b174df9f14",
+      "workspaceId": "f57474c4-6769-435f-b38c-b218efa98ed1",
+      "label": "UI design",
+      "type": "TASK",
+      "aliases": [],
+      "confidence": 0.95,
+      "sourceIds": [
+        "ac452f89-3ec7-4707-b2e9-74a14ea5b6f3"
+      ],
+      "createdAt": "2026-10-25T03:21:45.739Z",
+      "updatedAt": "2026-10-25T03:21:45.739Z",
+      "history": [
+        {
+          "sourceId": "ac452f89-3ec7-4707-b2e9-74a14ea5b6f3",
+          "asOf": "2026-10-24",
+          "status": "OPEN"
+        }
+      ],
+      "status": "OPEN"
+    },
+    {
+      "id": "96160c94-e1b3-4118-87bb-46bd47570bb3",
+      "workspaceId": "f57474c4-6769-435f-b38c-b218efa98ed1",
+      "label": "Update product branding",
+      "type": "TASK",
+      "aliases": [],
+      "confidence": 0.95,
+      "sourceIds": [
+        "76918186-cb8c-459c-bf1d-d79e92c933ae"
+      ],
+      "createdAt": "2026-10-25T03:46:19.458Z",
+      "updatedAt": "2026-10-25T03:46:19.458Z",
+      "possibleDuplicateOf": {
+        "nodeId": "e891e27f-0272-4f91-8b72-dc814a0f1d53",
+        "score": 0.765
+      },
+      "history": [
+        {
+          "sourceId": "76918186-cb8c-459c-bf1d-d79e92c933ae",
+          "asOf": "2026-10-24",
+          "status": "OPEN",
+          "date": "2026-11-02"
+        }
+      ],
+      "status": "OPEN",
+      "date": "2026-11-02"
+    },
+    {
+      "id": "1523a0c1-7435-4aa9-a28d-1a49f67f93b3",
+      "workspaceId": "a97cb4c6-967f-4828-acfd-9752f7df0d6f",
+      "label": "Linh",
+      "type": "PERSON",
+      "description": "Frontend",
+      "aliases": [],
+      "confidence": 0.9,
+      "sourceIds": [
+        "e22d7198-835b-4621-b0c5-79921128bd7c"
+      ],
+      "createdAt": "2026-10-25T21:09:42.868Z",
+      "updatedAt": "2026-10-25T21:09:42.868Z"
+    },
+    {
+      "id": "5a036da4-06b9-4b40-95b0-5a11b98113d7",
+      "workspaceId": "a97cb4c6-967f-4828-acfd-9752f7df0d6f",
+      "label": "Jen",
+      "type": "PERSON",
+      "description": "Product",
+      "aliases": [],
+      "confidence": 0.9,
+      "sourceIds": [
+        "e22d7198-835b-4621-b0c5-79921128bd7c"
+      ],
+      "createdAt": "2026-10-25T21:09:42.868Z",
+      "updatedAt": "2026-10-25T21:09:42.868Z"
+    },
+    {
+      "id": "1bd49783-a7e4-4f2f-b0f5-14f6a13f8f36",
+      "workspaceId": "a97cb4c6-967f-4828-acfd-9752f7df0d6f",
+      "label": "Sophia",
+      "type": "PERSON",
+      "description": "Account / Design",
+      "aliases": [],
+      "confidence": 0.8,
+      "sourceIds": [
+        "e22d7198-835b-4621-b0c5-79921128bd7c"
+      ],
+      "createdAt": "2026-10-25T21:09:42.868Z",
+      "updatedAt": "2026-10-25T21:09:42.868Z"
+    },
+    {
+      "id": "0aa08bd1-5a80-41fc-b6b4-c903c7cb7533",
+      "workspaceId": "a97cb4c6-967f-4828-acfd-9752f7df0d6f",
+      "label": "API Setup",
+      "type": "TASK",
+      "aliases": [],
+      "confidence": 0.85,
+      "sourceIds": [
+        "e22d7198-835b-4621-b0c5-79921128bd7c"
+      ],
+      "createdAt": "2026-10-25T21:09:42.868Z",
+      "updatedAt": "2026-10-25T21:09:42.868Z",
+      "history": [
+        {
+          "sourceId": "e22d7198-835b-4621-b0c5-79921128bd7c",
+          "asOf": "2026-10-25",
+          "status": "OPEN"
+        }
+      ],
+      "status": "OPEN"
+    },
+    {
+      "id": "1bd5e7c7-f7f5-4640-aea8-8d9857625de8",
+      "workspaceId": "a97cb4c6-967f-4828-acfd-9752f7df0d6f",
+      "label": "Test database",
+      "type": "TASK",
+      "aliases": [],
+      "confidence": 0.8,
+      "sourceIds": [
+        "e22d7198-835b-4621-b0c5-79921128bd7c"
+      ],
+      "createdAt": "2026-10-25T21:09:42.868Z",
+      "updatedAt": "2026-10-25T21:09:42.868Z",
+      "history": [
+        {
+          "sourceId": "e22d7198-835b-4621-b0c5-79921128bd7c",
+          "asOf": "2026-10-25",
+          "status": "OPEN"
+        }
+      ],
+      "status": "OPEN"
+    },
+    {
+      "id": "f565b6b8-ae94-44f7-9294-9ca75d7e169a",
+      "workspaceId": "a97cb4c6-967f-4828-acfd-9752f7df0d6f",
+      "label": "Product review",
+      "type": "TASK",
+      "aliases": [],
+      "confidence": 0.7,
+      "sourceIds": [
+        "e22d7198-835b-4621-b0c5-79921128bd7c"
+      ],
+      "createdAt": "2026-10-25T21:09:42.868Z",
+      "updatedAt": "2026-10-25T21:09:42.868Z",
+      "history": [
+        {
+          "sourceId": "e22d7198-835b-4621-b0c5-79921128bd7c",
+          "asOf": "2026-10-25",
+          "status": "OPEN"
+        }
+      ],
+      "status": "OPEN"
+    },
+    {
+      "id": "56cce615-7e6f-4b04-aac2-62fce079b005",
+      "workspaceId": "a97cb4c6-967f-4828-acfd-9752f7df0d6f",
+      "label": "Find 2 similar products",
+      "type": "TASK",
+      "aliases": [],
+      "confidence": 0.85,
+      "sourceIds": [
+        "e22d7198-835b-4621-b0c5-79921128bd7c"
+      ],
+      "createdAt": "2026-10-25T21:09:42.868Z",
+      "updatedAt": "2026-10-25T21:09:42.868Z",
+      "history": [
+        {
+          "sourceId": "e22d7198-835b-4621-b0c5-79921128bd7c",
+          "asOf": "2026-10-25",
+          "status": "OPEN"
+        }
+      ],
+      "status": "OPEN"
+    },
+    {
+      "id": "36f23e10-b7df-4291-bc3d-e2f13dc929ae",
+      "workspaceId": "ad4126f9-1ede-45f2-b16b-917989288ed5",
+      "label": "Team Offsite",
+      "type": "PROJECT",
+      "aliases": [],
+      "confidence": 0.95,
+      "sourceIds": [
+        "ed18c870-0ad3-4e16-88d7-1b48332e5b65"
+      ],
+      "createdAt": "2026-10-25T21:15:19.871Z",
+      "updatedAt": "2026-10-25T21:15:19.871Z"
+    },
+    {
+      "id": "e7291181-7f4d-40b8-b735-4c9f65be5ca5",
+      "workspaceId": "ad4126f9-1ede-45f2-b16b-917989288ed5",
+      "label": "Ben",
+      "type": "PERSON",
+      "aliases": [],
+      "confidence": 1,
+      "sourceIds": [
+        "ed18c870-0ad3-4e16-88d7-1b48332e5b65",
+        "a516ace8-926c-4974-8609-311ac3a2402c"
+      ],
+      "createdAt": "2026-10-25T21:15:19.871Z",
+      "updatedAt": "2026-10-26T02:02:52.518Z"
+    },
+    {
+      "id": "fa2b1c24-ed3c-4a33-bc47-0532380089bb",
+      "workspaceId": "ad4126f9-1ede-45f2-b16b-917989288ed5",
+      "label": "Maya",
+      "type": "PERSON",
+      "aliases": [],
+      "confidence": 0.95,
+      "sourceIds": [
+        "ed18c870-0ad3-4e16-88d7-1b48332e5b65",
+        "a516ace8-926c-4974-8609-311ac3a2402c"
+      ],
+      "createdAt": "2026-10-25T21:15:19.871Z",
+      "updatedAt": "2026-10-26T02:02:52.518Z"
+    },
+    {
+      "id": "22c81e29-9933-4886-8386-d1878c170a12",
+      "workspaceId": "ad4126f9-1ede-45f2-b16b-917989288ed5",
+      "label": "Book the venue",
+      "type": "TASK",
+      "aliases": [],
+      "confidence": 0.95,
+      "sourceIds": [
+        "ed18c870-0ad3-4e16-88d7-1b48332e5b65",
+        "a516ace8-926c-4974-8609-311ac3a2402c"
+      ],
+      "createdAt": "2026-10-25T21:15:19.871Z",
+      "updatedAt": "2026-10-26T02:02:52.518Z",
+      "history": [
+        {
+          "sourceId": "ed18c870-0ad3-4e16-88d7-1b48332e5b65",
+          "asOf": "2026-10-22",
+          "status": "OPEN",
+          "date": "2026-10-27"
+        },
+        {
+          "sourceId": "a516ace8-926c-4974-8609-311ac3a2402c",
+          "asOf": "2026-10-25",
+          "status": "DONE"
+        }
+      ],
+      "status": "DONE",
+      "date": "2026-10-27"
+    },
+    {
+      "id": "33abd737-a324-4e6e-94f6-0c4fba19fcbe",
+      "workspaceId": "ad4126f9-1ede-45f2-b16b-917989288ed5",
+      "label": "Send the invitations",
+      "type": "TASK",
+      "aliases": [],
+      "confidence": 0.95,
+      "sourceIds": [
+        "ed18c870-0ad3-4e16-88d7-1b48332e5b65",
+        "a516ace8-926c-4974-8609-311ac3a2402c"
+      ],
+      "createdAt": "2026-10-25T21:15:19.871Z",
+      "updatedAt": "2026-10-26T02:02:52.518Z",
+      "history": [
+        {
+          "sourceId": "ed18c870-0ad3-4e16-88d7-1b48332e5b65",
+          "asOf": "2026-10-22",
+          "status": "OPEN",
+          "date": "2026-10-30"
+        },
+        {
+          "sourceId": "a516ace8-926c-4974-8609-311ac3a2402c",
+          "asOf": "2026-10-25",
+          "date": "2026-11-01"
+        }
+      ],
+      "status": "OPEN",
+      "date": "2026-11-01"
+    },
+    {
+      "id": "759b2e0a-8046-4689-98d7-ae9983a52f75",
+      "workspaceId": "ad4126f9-1ede-45f2-b16b-917989288ed5",
+      "label": "The offsite is on Nov 13",
+      "type": "DECISION",
+      "aliases": [],
+      "confidence": 0.95,
+      "sourceIds": [
+        "ed18c870-0ad3-4e16-88d7-1b48332e5b65"
+      ],
+      "createdAt": "2026-10-25T21:15:19.871Z",
+      "updatedAt": "2026-10-25T21:15:19.871Z",
+      "history": [
+        {
+          "sourceId": "ed18c870-0ad3-4e16-88d7-1b48332e5b65",
+          "asOf": "2026-10-22",
+          "date": "2026-10-22"
+        }
+      ],
+      "date": "2026-10-22"
+    },
+    {
+      "id": "2c99ab06-68a2-4789-94c4-3b27ba99bd95",
+      "workspaceId": "ad4126f9-1ede-45f2-b16b-917989288ed5",
+      "label": "Chloe",
+      "type": "PERSON",
+      "aliases": [],
+      "confidence": 0.95,
+      "sourceIds": [
+        "a516ace8-926c-4974-8609-311ac3a2402c"
+      ],
+      "createdAt": "2026-10-26T02:02:52.518Z",
+      "updatedAt": "2026-10-26T02:02:52.518Z"
+    },
+    {
+      "id": "d9955658-aeee-4c80-b736-0de448ff8ea1",
+      "workspaceId": "ad4126f9-1ede-45f2-b16b-917989288ed5",
+      "label": "Order the catering",
+      "type": "TASK",
+      "aliases": [],
+      "confidence": 0.95,
+      "sourceIds": [
+        "a516ace8-926c-4974-8609-311ac3a2402c"
+      ],
+      "createdAt": "2026-10-26T02:02:52.518Z",
+      "updatedAt": "2026-10-26T02:02:52.518Z",
+      "history": [
+        {
+          "sourceId": "a516ace8-926c-4974-8609-311ac3a2402c",
+          "asOf": "2026-10-25",
+          "status": "OPEN",
+          "date": "2026-11-03"
+        }
+      ],
+      "status": "OPEN",
+      "date": "2026-11-03"
+    },
+    {
+      "id": "38910cab-706f-48fa-96e7-6765f3b61eca",
+      "workspaceId": "ad4126f9-1ede-45f2-b16b-917989288ed5",
+      "label": "Lunch will be catered",
+      "type": "DECISION",
+      "aliases": [],
+      "confidence": 0.95,
+      "sourceIds": [
+        "a516ace8-926c-4974-8609-311ac3a2402c"
+      ],
+      "createdAt": "2026-10-26T02:02:52.518Z",
+      "updatedAt": "2026-10-26T02:02:52.518Z",
+      "history": [
+        {
+          "sourceId": "a516ace8-926c-4974-8609-311ac3a2402c",
+          "asOf": "2026-10-25",
+          "date": "2026-10-25"
+        }
+      ],
+      "date": "2026-10-25"
+    }
+  ],
+  "edges": [
+    {
+      "id": "ea849311-23a3-4679-8fe5-68be91d4defc",
+      "workspaceId": "f57474c4-6769-435f-b38c-b218efa98ed1",
+      "source": "8bd0d299-fd56-4815-af7a-a1b922595425",
+      "target": "73bab916-e1ac-4c98-a877-2e9a813c2c48",
+      "relationship": "PART_OF",
+      "confidence": 0.9,
+      "sourceIds": [
+        "4720699e-9677-47b9-aef6-ee22257a491f"
+      ],
+      "createdAt": "2026-10-25T03:11:21.706Z"
+    },
+    {
+      "id": "7c029402-017a-45e9-b4c2-2dcdfbcec846",
+      "workspaceId": "f57474c4-6769-435f-b38c-b218efa98ed1",
+      "source": "c74db106-24f9-4981-a315-025c669dfbf7",
+      "target": "73bab916-e1ac-4c98-a877-2e9a813c2c48",
+      "relationship": "PART_OF",
+      "confidence": 0.95,
+      "sourceIds": [
+        "4720699e-9677-47b9-aef6-ee22257a491f"
+      ],
+      "createdAt": "2026-10-25T03:11:21.706Z"
+    },
+    {
+      "id": "19db5e44-c179-4495-b460-e993d8439ce7",
+      "workspaceId": "f57474c4-6769-435f-b38c-b218efa98ed1",
+      "source": "23a15e58-dc33-4dee-abbb-683ac9670da3",
+      "target": "73bab916-e1ac-4c98-a877-2e9a813c2c48",
+      "relationship": "PART_OF",
+      "confidence": 0.95,
+      "sourceIds": [
+        "4720699e-9677-47b9-aef6-ee22257a491f"
+      ],
+      "createdAt": "2026-10-25T03:11:21.706Z"
+    },
+    {
+      "id": "866304d0-12ab-4afb-9d1e-210327a3b672",
+      "workspaceId": "f57474c4-6769-435f-b38c-b218efa98ed1",
+      "source": "7d95bd69-0c5d-419f-ae94-8f01a1b640a0",
+      "target": "73bab916-e1ac-4c98-a877-2e9a813c2c48",
+      "relationship": "PART_OF",
+      "confidence": 0.95,
+      "sourceIds": [
+        "4720699e-9677-47b9-aef6-ee22257a491f"
+      ],
+      "createdAt": "2026-10-25T03:11:21.706Z"
+    },
+    {
+      "id": "0fb5408d-0d4c-45db-99d6-e2aff03d124e",
+      "workspaceId": "f57474c4-6769-435f-b38c-b218efa98ed1",
+      "source": "91547392-9099-43b3-9450-f16add38e51d",
+      "target": "73bab916-e1ac-4c98-a877-2e9a813c2c48",
+      "relationship": "PART_OF",
+      "confidence": 0.95,
+      "sourceIds": [
+        "4720699e-9677-47b9-aef6-ee22257a491f"
+      ],
+      "createdAt": "2026-10-25T03:11:21.706Z"
+    },
+    {
+      "id": "8e824acc-ba69-4af1-87cb-3a45ecf13f51",
+      "workspaceId": "f57474c4-6769-435f-b38c-b218efa98ed1",
+      "source": "c74db106-24f9-4981-a315-025c669dfbf7",
+      "target": "d8e74930-1ed2-479a-b762-187953e4953b",
+      "relationship": "RESPONSIBLE_FOR",
+      "confidence": 0.95,
+      "sourceIds": [
+        "4720699e-9677-47b9-aef6-ee22257a491f"
+      ],
+      "createdAt": "2026-10-25T03:11:21.706Z"
+    },
+    {
+      "id": "ed8761f0-1ff7-4911-be52-26468fd70c91",
+      "workspaceId": "f57474c4-6769-435f-b38c-b218efa98ed1",
+      "source": "91547392-9099-43b3-9450-f16add38e51d",
+      "target": "729e67ec-5669-4ae6-a872-020c804e5628",
+      "relationship": "RESPONSIBLE_FOR",
+      "confidence": 0.95,
+      "sourceIds": [
+        "4720699e-9677-47b9-aef6-ee22257a491f"
+      ],
+      "createdAt": "2026-10-25T03:11:21.706Z"
+    },
+    {
+      "id": "bed7baa4-ee94-456a-8134-a7638446b6a1",
+      "workspaceId": "f57474c4-6769-435f-b38c-b218efa98ed1",
+      "source": "7d95bd69-0c5d-419f-ae94-8f01a1b640a0",
+      "target": "0ebf5b06-12aa-4b96-9d46-11202c20363e",
+      "relationship": "RESPONSIBLE_FOR",
+      "confidence": 0.95,
+      "sourceIds": [
+        "4720699e-9677-47b9-aef6-ee22257a491f"
+      ],
+      "createdAt": "2026-10-25T03:11:21.706Z"
+    },
+    {
+      "id": "a6529d2a-7986-45c7-8ab1-58e5a3bd4c04",
+      "workspaceId": "f57474c4-6769-435f-b38c-b218efa98ed1",
+      "source": "7d95bd69-0c5d-419f-ae94-8f01a1b640a0",
+      "target": "32ae6e7e-0b3d-4941-89c4-237b2a1c637f",
+      "relationship": "RESPONSIBLE_FOR",
+      "confidence": 0.95,
+      "sourceIds": [
+        "4720699e-9677-47b9-aef6-ee22257a491f"
+      ],
+      "createdAt": "2026-10-25T03:11:21.706Z"
+    },
+    {
+      "id": "0c491df6-a94f-40b6-b39f-1d0032789344",
+      "workspaceId": "f57474c4-6769-435f-b38c-b218efa98ed1",
+      "source": "33a34ee2-c16b-4ef8-b5fb-9da6ace59f4b",
+      "target": "fc01e52d-3a57-4055-87b9-281cc4c98cfb",
+      "relationship": "RESPONSIBLE_FOR",
+      "confidence": 0.95,
+      "sourceIds": [
+        "e53948a9-88b6-4e19-be3f-66507f4aeac8"
+      ],
+      "createdAt": "2026-10-25T03:13:42.992Z"
+    },
+    {
+      "id": "e2e8d758-b0a8-4cc8-a860-e40f54d3db60",
+      "workspaceId": "f57474c4-6769-435f-b38c-b218efa98ed1",
+      "source": "7d95bd69-0c5d-419f-ae94-8f01a1b640a0",
+      "target": "e891e27f-0272-4f91-8b72-dc814a0f1d53",
+      "relationship": "RESPONSIBLE_FOR",
+      "confidence": 0.95,
+      "sourceIds": [
+        "367bc973-9108-40ad-a561-66b07e62695a"
+      ],
+      "createdAt": "2026-10-25T03:18:35.303Z"
+    },
+    {
+      "id": "79fecde3-e255-4455-9a31-b883f7d2a267",
+      "workspaceId": "f57474c4-6769-435f-b38c-b218efa98ed1",
+      "source": "24170b59-be56-4800-8d3a-35c215915c2f",
+      "target": "1f179aec-6178-4faa-99a7-17b174df9f14",
+      "relationship": "RESPONSIBLE_FOR",
+      "confidence": 0.95,
+      "sourceIds": [
+        "ac452f89-3ec7-4707-b2e9-74a14ea5b6f3"
+      ],
+      "createdAt": "2026-10-25T03:21:45.739Z"
+    },
+    {
+      "id": "f4da3aee-45d0-4192-9529-1c8e907fb10d",
+      "workspaceId": "a97cb4c6-967f-4828-acfd-9752f7df0d6f",
+      "source": "1523a0c1-7435-4aa9-a28d-1a49f67f93b3",
+      "target": "0aa08bd1-5a80-41fc-b6b4-c903c7cb7533",
+      "relationship": "RESPONSIBLE_FOR",
+      "confidence": 0.9,
+      "sourceIds": [
+        "e22d7198-835b-4621-b0c5-79921128bd7c"
+      ],
+      "createdAt": "2026-10-25T21:09:42.868Z"
+    },
+    {
+      "id": "cdc9ca33-b672-4ff0-8b1a-b189a5eb33c8",
+      "workspaceId": "a97cb4c6-967f-4828-acfd-9752f7df0d6f",
+      "source": "1523a0c1-7435-4aa9-a28d-1a49f67f93b3",
+      "target": "1bd5e7c7-f7f5-4640-aea8-8d9857625de8",
+      "relationship": "RESPONSIBLE_FOR",
+      "confidence": 0.85,
+      "sourceIds": [
+        "e22d7198-835b-4621-b0c5-79921128bd7c"
+      ],
+      "createdAt": "2026-10-25T21:09:42.868Z"
+    },
+    {
+      "id": "4faeab48-b05b-4401-9f95-9e5b6bdc8dec",
+      "workspaceId": "a97cb4c6-967f-4828-acfd-9752f7df0d6f",
+      "source": "5a036da4-06b9-4b40-95b0-5a11b98113d7",
+      "target": "f565b6b8-ae94-44f7-9294-9ca75d7e169a",
+      "relationship": "RESPONSIBLE_FOR",
+      "confidence": 0.75,
+      "sourceIds": [
+        "e22d7198-835b-4621-b0c5-79921128bd7c"
+      ],
+      "createdAt": "2026-10-25T21:09:42.868Z"
+    },
+    {
+      "id": "307fafd2-69b1-4279-8f98-229768ee1c4d",
+      "workspaceId": "a97cb4c6-967f-4828-acfd-9752f7df0d6f",
+      "source": "5a036da4-06b9-4b40-95b0-5a11b98113d7",
+      "target": "56cce615-7e6f-4b04-aac2-62fce079b005",
+      "relationship": "RESPONSIBLE_FOR",
+      "confidence": 0.85,
+      "sourceIds": [
+        "e22d7198-835b-4621-b0c5-79921128bd7c"
+      ],
+      "createdAt": "2026-10-25T21:09:42.868Z"
+    },
+    {
+      "id": "30f0893c-b009-4a72-9dab-c6e480e0dd57",
+      "workspaceId": "ad4126f9-1ede-45f2-b16b-917989288ed5",
+      "source": "fa2b1c24-ed3c-4a33-bc47-0532380089bb",
+      "target": "36f23e10-b7df-4291-bc3d-e2f13dc929ae",
+      "relationship": "OWNS",
+      "confidence": 0.9,
+      "sourceIds": [
+        "ed18c870-0ad3-4e16-88d7-1b48332e5b65"
+      ],
+      "createdAt": "2026-10-25T21:15:19.871Z"
+    },
+    {
+      "id": "e892ca0f-a29a-4704-8630-1956d1fb12ba",
+      "workspaceId": "ad4126f9-1ede-45f2-b16b-917989288ed5",
+      "source": "22c81e29-9933-4886-8386-d1878c170a12",
+      "target": "36f23e10-b7df-4291-bc3d-e2f13dc929ae",
+      "relationship": "PART_OF",
+      "confidence": 0.95,
+      "sourceIds": [
+        "ed18c870-0ad3-4e16-88d7-1b48332e5b65"
+      ],
+      "createdAt": "2026-10-25T21:15:19.871Z"
+    },
+    {
+      "id": "09225749-4cb6-4b1b-aa95-0c3586ef84a7",
+      "workspaceId": "ad4126f9-1ede-45f2-b16b-917989288ed5",
+      "source": "33abd737-a324-4e6e-94f6-0c4fba19fcbe",
+      "target": "36f23e10-b7df-4291-bc3d-e2f13dc929ae",
+      "relationship": "PART_OF",
+      "confidence": 0.95,
+      "sourceIds": [
+        "ed18c870-0ad3-4e16-88d7-1b48332e5b65"
+      ],
+      "createdAt": "2026-10-25T21:15:19.871Z"
+    },
+    {
+      "id": "64427059-34ff-406a-a70f-6edb672220e2",
+      "workspaceId": "ad4126f9-1ede-45f2-b16b-917989288ed5",
+      "source": "e7291181-7f4d-40b8-b735-4c9f65be5ca5",
+      "target": "fa2b1c24-ed3c-4a33-bc47-0532380089bb",
+      "relationship": "REPORTS_TO",
+      "confidence": 0.95,
+      "sourceIds": [
+        "ed18c870-0ad3-4e16-88d7-1b48332e5b65"
+      ],
+      "createdAt": "2026-10-25T21:15:19.871Z"
+    },
+    {
+      "id": "8096effd-733a-4fc4-82d9-9ac29decc576",
+      "workspaceId": "ad4126f9-1ede-45f2-b16b-917989288ed5",
+      "source": "e7291181-7f4d-40b8-b735-4c9f65be5ca5",
+      "target": "22c81e29-9933-4886-8386-d1878c170a12",
+      "relationship": "RESPONSIBLE_FOR",
+      "confidence": 0.95,
+      "sourceIds": [
+        "ed18c870-0ad3-4e16-88d7-1b48332e5b65"
+      ],
+      "createdAt": "2026-10-25T21:15:19.871Z"
+    },
+    {
+      "id": "d395aa9e-ce7d-4be3-a01d-8f068fc6d864",
+      "workspaceId": "ad4126f9-1ede-45f2-b16b-917989288ed5",
+      "source": "fa2b1c24-ed3c-4a33-bc47-0532380089bb",
+      "target": "33abd737-a324-4e6e-94f6-0c4fba19fcbe",
+      "relationship": "RESPONSIBLE_FOR",
+      "confidence": 0.95,
+      "sourceIds": [
+        "ed18c870-0ad3-4e16-88d7-1b48332e5b65"
+      ],
+      "createdAt": "2026-10-25T21:15:19.871Z"
+    },
+    {
+      "id": "6509d215-ad79-4c88-83d2-0d4f8ffa9dc9",
+      "workspaceId": "ad4126f9-1ede-45f2-b16b-917989288ed5",
+      "source": "2c99ab06-68a2-4789-94c4-3b27ba99bd95",
+      "target": "fa2b1c24-ed3c-4a33-bc47-0532380089bb",
+      "relationship": "REPORTS_TO",
+      "confidence": 0.95,
+      "sourceIds": [
+        "a516ace8-926c-4974-8609-311ac3a2402c"
+      ],
+      "createdAt": "2026-10-26T02:02:52.518Z"
+    },
+    {
+      "id": "7095494b-9ef4-4ad6-947a-ba39e5b91a68",
+      "workspaceId": "ad4126f9-1ede-45f2-b16b-917989288ed5",
+      "source": "2c99ab06-68a2-4789-94c4-3b27ba99bd95",
+      "target": "d9955658-aeee-4c80-b736-0de448ff8ea1",
+      "relationship": "RESPONSIBLE_FOR",
+      "confidence": 0.95,
+      "sourceIds": [
+        "a516ace8-926c-4974-8609-311ac3a2402c"
+      ],
+      "createdAt": "2026-10-26T02:02:52.518Z"
+    }
+  ]
+}

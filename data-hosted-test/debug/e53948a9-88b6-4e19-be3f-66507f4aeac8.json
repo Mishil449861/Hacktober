@@ -1,0 +1,169 @@
+[
+  {
+    "stage": "input",
+    "data": {
+      "name": "Notes 23:13:03",
+      "type": "TEXT",
+      "meetingDate": "2026-10-24",
+      "text": "- Linh has completed all of her tasks\n- A new member has joined the project (Ham) is tasked with running live demo tests which is due next thursday \n- The API setup has an updated deadline being 2 days later\n"
+    }
+  },
+  {
+    "stage": "notes-parser",
+    "data": {
+      "input": "text",
+      "nodes": [],
+      "edges": [],
+      "covers": []
+    }
+  },
+  {
+    "stage": "model.raw",
+    "data": "{\n  \"summary\": \"Linh completed all her tasks, and a new member Ham joined to run live demo tests by next Thursday. The API setup task deadline was extended by two days.\",\n  \"nodes\": [\n    {\"temporaryId\": \"n1\", \"label\": \"Linh\", \"type\": \"PERSON\", \"confidence\": 0.95},\n    {\"temporaryId\": \"n2\", \"label\": \"Ham\", \"type\": \"PERSON\", \"confidence\": 0.95},\n    {\"temporaryId\": \"n3\", \"label\": \"Run live demo tests\", \"type\": \"TASK\", \"owner\": \"Ham\", \"confidence\": 0.95},\n    {\"temporaryId\": \"n4\", \"label\": \"API setup\", \"type\": \"TASK\", \"confidence\": 0.95}\n  ],\n  \"edges\": [\n    {\"sourceTemporaryId\": \"n2\", \"targetTemporaryId\": \"n3\", \"relationship\": \"RESPONSIBLE_FOR\", \"confidence\": 0.95}\n  ],\n  \"ambiguities\": [\n    \"Meeting date 2026-10-24 is a Saturday; 'next thursday' could refer to 2026-10-29 or 2026-11-05.\",\n    \"The original due date for 'API setup' is unknown, so the updated date (+2 days) could not be resolved.\"\n  ]\n}"
+  },
+  {
+    "stage": "model.validated",
+    "data": {
+      "summary": "Linh completed all her tasks, and a new member Ham joined to run live demo tests by next Thursday. The API setup task deadline was extended by two days.",
+      "nodes": [
+        {
+          "temporaryId": "n1",
+          "label": "Linh",
+          "type": "PERSON",
+          "confidence": 0.95
+        },
+        {
+          "temporaryId": "n2",
+          "label": "Ham",
+          "type": "PERSON",
+          "confidence": 0.95
+        },
+        {
+          "temporaryId": "n3",
+          "label": "Run live demo tests",
+          "type": "TASK",
+          "owner": "Ham",
+          "confidence": 0.95
+        },
+        {
+          "temporaryId": "n4",
+          "label": "API setup",
+          "type": "TASK",
+          "confidence": 0.95
+        }
+      ],
+      "edges": [
+        {
+          "sourceTemporaryId": "n2",
+          "targetTemporaryId": "n3",
+          "relationship": "RESPONSIBLE_FOR",
+          "confidence": 0.95
+        }
+      ],
+      "ambiguities": [
+        "Meeting date 2026-10-24 is a Saturday; 'next thursday' could refer to 2026-10-29 or 2026-11-05.",
+        "The original due date for 'API setup' is unknown, so the updated date (+2 days) could not be resolved."
+      ]
+    }
+  },
+  {
+    "stage": "final",
+    "data": {
+      "summary": "Linh completed all her tasks, and a new member Ham joined to run live demo tests by next Thursday. The API setup task deadline was extended by two days.",
+      "nodes": [
+        {
+          "temporaryId": "n1",
+          "label": "Linh",
+          "type": "PERSON",
+          "confidence": 0.95
+        },
+        {
+          "temporaryId": "n2",
+          "label": "Ham",
+          "type": "PERSON",
+          "confidence": 0.95
+        },
+        {
+          "temporaryId": "n3",
+          "label": "Run live demo tests",
+          "type": "TASK",
+          "confidence": 0.95
+        },
+        {
+          "temporaryId": "n4",
+          "label": "API setup",
+          "type": "TASK",
+          "confidence": 0.95
+        }
+      ],
+      "edges": [
+        {
+          "sourceTemporaryId": "n2",
+          "targetTemporaryId": "n3",
+          "relationship": "RESPONSIBLE_FOR",
+          "confidence": 0.95
+        }
+      ],
+      "ambiguities": [
+        "Meeting date 2026-10-24 is a Saturday; 'next thursday' could refer to 2026-10-29 or 2026-11-05.",
+        "The original due date for 'API setup' is unknown, so the updated date (+2 days) could not be resolved."
+      ]
+    }
+  },
+  {
+    "stage": "merge",
+    "data": {
+      "created": 2,
+      "matched": 2,
+      "uncertain": 0,
+      "edgesAdded": 1,
+      "edgesReinforced": 0
+    }
+  },
+  {
+    "stage": "views.actionItems",
+    "data": [
+      {
+        "id": "d8e74930-1ed2-479a-b762-187953e4953b",
+        "label": "API setup",
+        "description": null,
+        "owners": [
+          "Mishil"
+        ],
+        "due": "2026-10-30",
+        "status": "OPEN",
+        "overdue": false,
+        "raisedOn": "2026-10-24",
+        "raisedIn": "IMG_5705.JPG",
+        "lastUpdate": {
+          "on": "2026-10-24",
+          "in": "IMG_5705.JPG"
+        },
+        "meetings": [
+          "IMG_5705.JPG",
+          "Notes 23:13:03"
+        ]
+      },
+      {
+        "id": "fc01e52d-3a57-4055-87b9-281cc4c98cfb",
+        "label": "Run live demo tests",
+        "description": null,
+        "owners": [
+          "Ham"
+        ],
+        "due": null,
+        "status": "OPEN",
+        "overdue": false,
+        "raisedOn": "2026-10-24",
+        "raisedIn": "Notes 23:13:03",
+        "lastUpdate": {
+          "on": "2026-10-24",
+          "in": "Notes 23:13:03"
+        },
+        "meetings": [
+          "Notes 23:13:03"
+        ]
+      }
+    ]
+  }
+]

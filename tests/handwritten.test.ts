@@ -13,7 +13,7 @@ process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'orgmap-test-'))
 process.env.OLLAMA_BASE_URL = 'http://127.0.0.1:9'
 process.env.OCR_ENABLED = 'false'
 const { parseMinutes, combineWithModel, dropStruck } = await import('../server/lib/minutes.ts')
-const { applyOwners, dropLeakedDates, sanitize } = await import('../server/lib/ai/provider.ts')
+const { addStatedDates, applyOwners, dropLeakedDates, sanitize } = await import('../server/lib/ai/provider.ts')
 const { mergeExtraction } = await import('../server/graph/reconcile.ts')
 const { buildViews } = await import('../server/views.ts')
 const { store } = await import('../server/store.ts')
@@ -216,6 +216,17 @@ test('dates the model resolves from "Oct 14" / "DUE Fri" are kept; the meeting d
   assert.deepEqual(x.nodes.map((n) => n.date), ['2026-10-14', '2026-10-16', undefined, undefined])
 })
 
+test('a due date on the meeting day is kept when the text says so, and filled in when the model left it out', () => {
+  const text = '- New member on the team (Jim) tasked with UI design due on Oct 24, 2026\n- Ham: run live demo tests due next thursday'
+  const x = addStatedDates(dropLeakedDates(model([
+    { temporaryId: 't1', label: 'UI design', type: 'TASK', confidence: 1, date: '2026-10-24' },
+    { temporaryId: 't2', label: 'Run live demo tests', type: 'TASK', confidence: 1 },
+    { temporaryId: 't3', label: 'Write the agenda', type: 'TASK', confidence: 1 },
+  ]), text, '2026-10-24'), text, '2026-10-24')
+  assert.deepEqual(x.nodes.map((n) => n.date), ['2026-10-24', '2026-10-29', undefined])
+  assert.equal(addStatedDates(model([{ temporaryId: 't1', label: 'UI design', type: 'TASK', confidence: 1 }]), text, '2026-10-24').nodes[0].date, '2026-10-24')
+})
+
 test('owner field: becomes the ownership edge, overrides a conflicting guessed edge, never invents a person', () => {
   const x = applyOwners(model([
     { temporaryId: 'p1', label: 'Linh', type: 'PERSON', confidence: 1 },
@@ -231,6 +242,16 @@ test('owner field: becomes the ownership edge, overrides a conflicting guessed e
   ])
   assert.ok(x.ambiguities.some((a) => a.includes('Jordan')), 'an owner who is not in the notes is reported, not assigned')
   assert.equal(x.nodes.some((n) => 'owner' in n), false, 'ownership lives in the graph only')
+})
+
+test('owner field given as the person node\'s temporaryId ("n2") is that person', () => {
+  const x = applyOwners(model([
+    { temporaryId: 'n2', label: 'Maya', type: 'PERSON', confidence: 1 },
+    { temporaryId: 'n3', label: 'landing page', type: 'TASK', confidence: 1, owner: 'n2' },
+    { temporaryId: 'n4', label: 'logo', type: 'TASK', confidence: 1, owner: 'n9' },
+  ]), 'Maya\n- landing page\n- logo')
+  assert.deepEqual(x.edges.map((e) => `${e.sourceTemporaryId} -${e.relationship}-> ${e.targetTemporaryId}`), ['n2 -RESPONSIBLE_FOR-> n3'])
+  assert.deepEqual(x.ambiguities, ['"logo": owner "n9" is not in the notes, left unassigned.'], 'an id that is no person stays unassigned')
 })
 
 test('sanitize: "Maya → Design" read as REPORTS_TO is not a reporting line', () => {

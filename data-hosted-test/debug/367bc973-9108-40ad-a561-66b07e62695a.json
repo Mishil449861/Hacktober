@@ -1,0 +1,127 @@
+[
+  {
+    "stage": "input",
+    "data": {
+      "name": "Notes 23:17:35",
+      "type": "TEXT",
+      "meetingDate": "2026-10-24",
+      "text": "- Jen: Update project branding "
+    }
+  },
+  {
+    "stage": "notes-parser",
+    "data": {
+      "input": "text",
+      "nodes": [
+        "TASK Update project branding [OPEN]",
+        "PERSON Jen"
+      ],
+      "edges": [
+        "Jen -RESPONSIBLE_FOR-> Update project branding"
+      ],
+      "covers": [
+        "TASK"
+      ]
+    }
+  },
+  {
+    "stage": "model.raw",
+    "data": "{\n  \"summary\": \"Jen was assigned the task to update project branding.\",\n  \"nodes\": [\n    {\n      \"temporaryId\": \"n1\",\n      \"label\": \"Jen\",\n      \"type\": \"PERSON\",\n      \"confidence\": 1.0\n    },\n    {\n      \"temporaryId\": \"n2\",\n      \"label\": \"Update project branding\",\n      \"type\": \"TASK\",\n      \"status\": \"OPEN\",\n      \"owner\": \"Jen\",\n      \"confidence\": 1.0\n    }\n  ],\n  \"edges\": [\n    {\n      \"sourceTemporaryId\": \"n1\",\n      \"targetTemporaryId\": \"n2\",\n      \"relationship\": \"RESPONSIBLE_FOR\",\n      \"confidence\": 1.0\n    }\n  ],\n  \"ambiguities\": []\n}"
+  },
+  {
+    "stage": "model.validated",
+    "data": {
+      "summary": "Jen was assigned the task to update project branding.",
+      "nodes": [
+        {
+          "temporaryId": "n1",
+          "label": "Jen",
+          "type": "PERSON",
+          "confidence": 1
+        },
+        {
+          "temporaryId": "n2",
+          "label": "Update project branding",
+          "type": "TASK",
+          "status": "OPEN",
+          "owner": "Jen",
+          "confidence": 1
+        }
+      ],
+      "edges": [
+        {
+          "sourceTemporaryId": "n1",
+          "targetTemporaryId": "n2",
+          "relationship": "RESPONSIBLE_FOR",
+          "confidence": 1
+        }
+      ],
+      "ambiguities": []
+    }
+  },
+  {
+    "stage": "final",
+    "data": {
+      "summary": "Jen was assigned the task to update project branding.",
+      "nodes": [
+        {
+          "temporaryId": "p1",
+          "label": "Update project branding",
+          "type": "TASK",
+          "confidence": 0.95,
+          "status": "OPEN"
+        },
+        {
+          "temporaryId": "p2",
+          "label": "Jen",
+          "type": "PERSON",
+          "confidence": 0.95
+        }
+      ],
+      "edges": [
+        {
+          "sourceTemporaryId": "p2",
+          "targetTemporaryId": "p1",
+          "relationship": "RESPONSIBLE_FOR",
+          "confidence": 0.95
+        }
+      ],
+      "ambiguities": []
+    }
+  },
+  {
+    "stage": "merge",
+    "data": {
+      "created": 1,
+      "matched": 1,
+      "uncertain": 0,
+      "edgesAdded": 1,
+      "edgesReinforced": 0
+    }
+  },
+  {
+    "stage": "views.actionItems",
+    "data": [
+      {
+        "id": "e891e27f-0272-4f91-8b72-dc814a0f1d53",
+        "label": "Update project branding",
+        "description": null,
+        "owners": [
+          "Jen"
+        ],
+        "due": null,
+        "status": "OPEN",
+        "overdue": false,
+        "raisedOn": "2026-10-24",
+        "raisedIn": "Notes 23:17:35",
+        "lastUpdate": {
+          "on": "2026-10-24",
+          "in": "Notes 23:17:35"
+        },
+        "meetings": [
+          "Notes 23:17:35"
+        ]
+      }
+    ]
+  }
+]

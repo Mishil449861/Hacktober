@@ -1,0 +1,118 @@
+[
+  {
+    "stage": "input",
+    "data": {
+      "name": "Notes 23:19:57",
+      "type": "TEXT",
+      "meetingDate": "2026-10-24",
+      "text": "- New member on the team (Jim) tasked with UI design due on Oct 24, 2026"
+    }
+  },
+  {
+    "stage": "notes-parser",
+    "data": {
+      "input": "text",
+      "nodes": [],
+      "edges": [],
+      "covers": []
+    }
+  },
+  {
+    "stage": "model.raw",
+    "data": "{\n  \"summary\": \"Jim joined the team and was assigned the UI design task due on October 24, 2026.\",\n  \"nodes\": [\n    {\n      \"temporaryId\": \"n1\",\n      \"label\": \"Jim\",\n      \"type\": \"PERSON\",\n      \"confidence\": 1.0\n    },\n    {\n      \"temporaryId\": \"n2\",\n      \"label\": \"UI design\",\n      \"type\": \"TASK\",\n      \"owner\": \"Jim\",\n      \"confidence\": 0.95\n    }\n  ],\n  \"edges\": [\n    {\n      \"sourceTemporaryId\": \"n1\",\n      \"targetTemporaryId\": \"n2\",\n      \"relationship\": \"RESPONSIBLE_FOR\",\n      \"confidence\": 0.95\n    }\n  ],\n  \"ambiguities\": []\n}"
+  },
+  {
+    "stage": "model.validated",
+    "data": {
+      "summary": "Jim joined the team and was assigned the UI design task due on October 24, 2026.",
+      "nodes": [
+        {
+          "temporaryId": "n1",
+          "label": "Jim",
+          "type": "PERSON",
+          "confidence": 1
+        },
+        {
+          "temporaryId": "n2",
+          "label": "UI design",
+          "type": "TASK",
+          "owner": "Jim",
+          "confidence": 0.95
+        }
+      ],
+      "edges": [
+        {
+          "sourceTemporaryId": "n1",
+          "targetTemporaryId": "n2",
+          "relationship": "RESPONSIBLE_FOR",
+          "confidence": 0.95
+        }
+      ],
+      "ambiguities": []
+    }
+  },
+  {
+    "stage": "final",
+    "data": {
+      "summary": "Jim joined the team and was assigned the UI design task due on October 24, 2026.",
+      "nodes": [
+        {
+          "temporaryId": "n1",
+          "label": "Jim",
+          "type": "PERSON",
+          "confidence": 1
+        },
+        {
+          "temporaryId": "n2",
+          "label": "UI design",
+          "type": "TASK",
+          "confidence": 0.95
+        }
+      ],
+      "edges": [
+        {
+          "sourceTemporaryId": "n1",
+          "targetTemporaryId": "n2",
+          "relationship": "RESPONSIBLE_FOR",
+          "confidence": 0.95
+        }
+      ],
+      "ambiguities": []
+    }
+  },
+  {
+    "stage": "merge",
+    "data": {
+      "created": 2,
+      "matched": 0,
+      "uncertain": 0,
+      "edgesAdded": 1,
+      "edgesReinforced": 0
+    }
+  },
+  {
+    "stage": "views.actionItems",
+    "data": [
+      {
+        "id": "1f179aec-6178-4faa-99a7-17b174df9f14",
+        "label": "UI design",
+        "description": null,
+        "owners": [
+          "Jim"
+        ],
+        "due": null,
+        "status": "OPEN",
+        "overdue": false,
+        "raisedOn": "2026-10-24",
+        "raisedIn": "Notes 23:19:57",
+        "lastUpdate": {
+          "on": "2026-10-24",
+          "in": "Notes 23:19:57"
+        },
+        "meetings": [
+          "Notes 23:19:57"
+        ]
+      }
+    ]
+  }
+]

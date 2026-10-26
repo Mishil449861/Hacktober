@@ -1,0 +1,296 @@
+[
+  {
+    "stage": "input",
+    "data": {
+      "name": "IMG_5705.JPG",
+      "type": "IMAGE",
+      "meetingDate": "2026-10-25"
+    }
+  },
+  {
+    "stage": "ocr",
+    "data": "wen) pH]\n/ po\n| (design)\n12444 \\\n4 “9 eed ND Shaya\nLin Jen Sophia (accent)\n(Funtond) (podoch) eo) |\n| Linh ° APL SeHp |\n— Test dotabare dver Frdad |\n\\ A | Jen:\n\\ = Poodud- ve yea vtn\nL i ~fAnd 2 Similav produds\n5 > |\nJ |\n: |"
+  },
+  {
+    "stage": "model.error (vision)",
+    "data": "Google Gemini answered 503 (This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.)"
+  },
+  {
+    "stage": "notes-parser",
+    "data": {
+      "input": "text",
+      "nodes": [],
+      "edges": [],
+      "covers": []
+    }
+  },
+  {
+    "stage": "model.raw",
+    "data": "{\"summary\":\"Sprint or project task assignments for Linh, Jen, and Sophia across frontend, product, and design roles.\",\"nodes\":[{\"temporaryId\":\"n1\",\"label\":\"Linh\",\"type\":\"PERSON\",\"description\":\"Frontend\",\"confidence\":0.9},{\"temporaryId\":\"n2\",\"label\":\"Jen\",\"type\":\"PERSON\",\"description\":\"Product\",\"confidence\":0.9},{\"temporaryId\":\"n3\",\"label\":\"Sophia\",\"type\":\"PERSON\",\"description\":\"Account / Design\",\"confidence\":0.8},{\"temporaryId\":\"n4\",\"label\":\"API Setup\",\"type\":\"TASK\",\"owner\":\"Linh\",\"confidence\":0.85},{\"temporaryId\":\"n5\",\"label\":\"Test database\",\"type\":\"TASK\",\"owner\":\"Linh\",\"confidence\":0.8},{\"temporaryId\":\"n6\",\"label\":\"Product review\",\"type\":\"TASK\",\"owner\":\"Jen\",\"confidence\":0.7},{\"temporaryId\":\"n7\",\"label\":\"Find 2 similar products\",\"type\":\"TASK\",\"owner\":\"Jen\",\"confidence\":0.85}],\"edges\":[{\"sourceTemporaryId\":\"n1\",\"targetTemporaryId\":\"n4\",\"relationship\":\"RESPONSIBLE_FOR\",\"confidence\":0.9},{\"sourceTemporaryId\":\"n1\",\"targetTemporaryId\":\"n5\",\"relationship\":\"RESPONSIBLE_FOR\",\"confidence\":0.85},{\"sourceTemporaryId\":\"n2\",\"targetTemporaryId\":\"n6\",\"relationship\":\"RESPONSIBLE_FOR\",\"confidence\":0.75},{\"sourceTemporaryId\":\"n2\",\"targetTemporaryId\":\"n7\",\"relationship\":\"RESPONSIBLE_FOR\",\"confidence\":0.85}],\"ambiguities\":[\"Heavily degraded OCR text around header elements ('wen) pH]', '12444', 'Shaya / Sophia (accent)').\",\"'Test dotabare dver Frdad' is ambiguous; interpreted as testing database due Friday.\"]}"
+  },
+  {
+    "stage": "model.validated",
+    "data": {
+      "summary": "Sprint or project task assignments for Linh, Jen, and Sophia across frontend, product, and design roles.",
+      "nodes": [
+        {
+          "temporaryId": "n1",
+          "label": "Linh",
+          "type": "PERSON",
+          "description": "Frontend",
+          "confidence": 0.9
+        },
+        {
+          "temporaryId": "n2",
+          "label": "Jen",
+          "type": "PERSON",
+          "description": "Product",
+          "confidence": 0.9
+        },
+        {
+          "temporaryId": "n3",
+          "label": "Sophia",
+          "type": "PERSON",
+          "description": "Account / Design",
+          "confidence": 0.8
+        },
+        {
+          "temporaryId": "n4",
+          "label": "API Setup",
+          "type": "TASK",
+          "owner": "Linh",
+          "confidence": 0.85
+        },
+        {
+          "temporaryId": "n5",
+          "label": "Test database",
+          "type": "TASK",
+          "owner": "Linh",
+          "confidence": 0.8
+        },
+        {
+          "temporaryId": "n6",
+          "label": "Product review",
+          "type": "TASK",
+          "owner": "Jen",
+          "confidence": 0.7
+        },
+        {
+          "temporaryId": "n7",
+          "label": "Find 2 similar products",
+          "type": "TASK",
+          "owner": "Jen",
+          "confidence": 0.85
+        }
+      ],
+      "edges": [
+        {
+          "sourceTemporaryId": "n1",
+          "targetTemporaryId": "n4",
+          "relationship": "RESPONSIBLE_FOR",
+          "confidence": 0.9
+        },
+        {
+          "sourceTemporaryId": "n1",
+          "targetTemporaryId": "n5",
+          "relationship": "RESPONSIBLE_FOR",
+          "confidence": 0.85
+        },
+        {
+          "sourceTemporaryId": "n2",
+          "targetTemporaryId": "n6",
+          "relationship": "RESPONSIBLE_FOR",
+          "confidence": 0.75
+        },
+        {
+          "sourceTemporaryId": "n2",
+          "targetTemporaryId": "n7",
+          "relationship": "RESPONSIBLE_FOR",
+          "confidence": 0.85
+        }
+      ],
+      "ambiguities": [
+        "Heavily degraded OCR text around header elements ('wen) pH]', '12444', 'Shaya / Sophia (accent)').",
+        "'Test dotabare dver Frdad' is ambiguous; interpreted as testing database due Friday."
+      ]
+    }
+  },
+  {
+    "stage": "final",
+    "data": {
+      "summary": "Sprint or project task assignments for Linh, Jen, and Sophia across frontend, product, and design roles.",
+      "nodes": [
+        {
+          "temporaryId": "n1",
+          "label": "Linh",
+          "type": "PERSON",
+          "description": "Frontend",
+          "confidence": 0.9
+        },
+        {
+          "temporaryId": "n2",
+          "label": "Jen",
+          "type": "PERSON",
+          "description": "Product",
+          "confidence": 0.9
+        },
+        {
+          "temporaryId": "n3",
+          "label": "Sophia",
+          "type": "PERSON",
+          "description": "Account / Design",
+          "confidence": 0.8
+        },
+        {
+          "temporaryId": "n4",
+          "label": "API Setup",
+          "type": "TASK",
+          "confidence": 0.85
+        },
+        {
+          "temporaryId": "n5",
+          "label": "Test database",
+          "type": "TASK",
+          "confidence": 0.8
+        },
+        {
+          "temporaryId": "n6",
+          "label": "Product review",
+          "type": "TASK",
+          "confidence": 0.7
+        },
+        {
+          "temporaryId": "n7",
+          "label": "Find 2 similar products",
+          "type": "TASK",
+          "confidence": 0.85
+        }
+      ],
+      "edges": [
+        {
+          "sourceTemporaryId": "n1",
+          "targetTemporaryId": "n4",
+          "relationship": "RESPONSIBLE_FOR",
+          "confidence": 0.9
+        },
+        {
+          "sourceTemporaryId": "n1",
+          "targetTemporaryId": "n5",
+          "relationship": "RESPONSIBLE_FOR",
+          "confidence": 0.85
+        },
+        {
+          "sourceTemporaryId": "n2",
+          "targetTemporaryId": "n6",
+          "relationship": "RESPONSIBLE_FOR",
+          "confidence": 0.75
+        },
+        {
+          "sourceTemporaryId": "n2",
+          "targetTemporaryId": "n7",
+          "relationship": "RESPONSIBLE_FOR",
+          "confidence": 0.85
+        }
+      ],
+      "ambiguities": [
+        "Heavily degraded OCR text around header elements ('wen) pH]', '12444', 'Shaya / Sophia (accent)').",
+        "'Test dotabare dver Frdad' is ambiguous; interpreted as testing database due Friday."
+      ]
+    }
+  },
+  {
+    "stage": "merge",
+    "data": {
+      "created": 7,
+      "matched": 0,
+      "uncertain": 0,
+      "edgesAdded": 4,
+      "edgesReinforced": 0
+    }
+  },
+  {
+    "stage": "views.actionItems",
+    "data": [
+      {
+        "id": "0aa08bd1-5a80-41fc-b6b4-c903c7cb7533",
+        "label": "API Setup",
+        "description": null,
+        "owners": [
+          "Linh"
+        ],
+        "due": null,
+        "status": "OPEN",
+        "overdue": false,
+        "raisedOn": "2026-10-25",
+        "raisedIn": "IMG_5705.JPG",
+        "lastUpdate": {
+          "on": "2026-10-25",
+          "in": "IMG_5705.JPG"
+        },
+        "meetings": [
+          "IMG_5705.JPG"
+        ]
+      },
+      {
+        "id": "1bd5e7c7-f7f5-4640-aea8-8d9857625de8",
+        "label": "Test database",
+        "description": null,
+        "owners": [
+          "Linh"
+        ],
+        "due": null,
+        "status": "OPEN",
+        "overdue": false,
+        "raisedOn": "2026-10-25",
+        "raisedIn": "IMG_5705.JPG",
+        "lastUpdate": {
+          "on": "2026-10-25",
+          "in": "IMG_5705.JPG"
+        },
+        "meetings": [
+          "IMG_5705.JPG"
+        ]
+      },
+      {
+        "id": "f565b6b8-ae94-44f7-9294-9ca75d7e169a",
+        "label": "Product review",
+        "description": null,
+        "owners": [
+          "Jen"
+        ],
+        "due": null,
+        "status": "OPEN",
+        "overdue": false,
+        "raisedOn": "2026-10-25",
+        "raisedIn": "IMG_5705.JPG",
+        "lastUpdate": {
+          "on": "2026-10-25",
+          "in": "IMG_5705.JPG"
+        },
+        "meetings": [
+          "IMG_5705.JPG"
+        ]
+      },
+      {
+        "id": "56cce615-7e6f-4b04-aac2-62fce079b005",
+        "label": "Find 2 similar products",
+        "description": null,
+        "owners": [
+          "Jen"
+        ],
+        "due": null,
+        "status": "OPEN",
+        "overdue": false,
+        "raisedOn": "2026-10-25",
+        "raisedIn": "IMG_5705.JPG",
+        "lastUpdate": {
+          "on": "2026-10-25",
+          "in": "IMG_5705.JPG"
+        },
+        "meetings": [
+          "IMG_5705.JPG"
+        ]
+      }
+    ]
+  }
+]

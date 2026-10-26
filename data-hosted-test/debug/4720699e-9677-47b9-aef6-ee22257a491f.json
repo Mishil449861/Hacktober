@@ -1,0 +1,467 @@
+[
+  {
+    "stage": "input",
+    "data": {
+      "name": "IMG_5705.JPG",
+      "type": "IMAGE",
+      "meetingDate": "2026-10-24"
+    }
+  },
+  {
+    "stage": "ocr",
+    "data": "wen) pH]\n/ po\n| (design)\n12444 \\\n4 “9 eed ND Shaya\nLin Jen Sophia (accent)\n(Funtond) (podoch) eo) |\n| Linh ° APL SeHp |\n— Test dotabare dver Frdad |\n\\ A | Jen:\n\\ = Poodud- ve yea vtn\nL i ~fAnd 2 Similav produds\n5 > |\nJ |\n: |"
+  },
+  {
+    "stage": "model.raw",
+    "data": "{\"transcript\":\"Test\\n\\nHackathon Project\\n- (design) Shriya\\n- Mishil (backend)\\n- Sophia (research)\\n- Jen (product)\\n- Linh (frontend)\\n\\nMishil:\\n- API setup\\ndue: Friday\\n\\nLinh:\\n- Test database\\n\\nJen:\\n- Product research\\n- Find 2 similar products\\n\\nNOTE: Full team meeting on Sunday\",\"summary\":\"Team structure and task assignments for Hackathon Project, featuring roles for Shriya, Mishil, Sophia, Jen, and Linh, along with action items and a full team meeting scheduled on Sunday.\",\"nodes\":[{\"temporaryId\":\"n1\",\"label\":\"Hackathon Project\",\"type\":\"PROJECT\",\"confidence\":0.95},{\"temporaryId\":\"n2\",\"label\":\"Shriya\",\"type\":\"PERSON\",\"description\":\"design\",\"confidence\":0.95},{\"temporaryId\":\"n3\",\"label\":\"Mishil\",\"type\":\"PERSON\",\"description\":\"backend\",\"confidence\":0.95},{\"temporaryId\":\"n4\",\"label\":\"Sophia\",\"type\":\"PERSON\",\"description\":\"research\",\"confidence\":0.95},{\"temporaryId\":\"n5\",\"label\":\"Jen\",\"type\":\"PERSON\",\"description\":\"product\",\"confidence\":0.95},{\"temporaryId\":\"n6\",\"label\":\"Linh\",\"type\":\"PERSON\",\"description\":\"frontend\",\"confidence\":0.95},{\"temporaryId\":\"n7\",\"label\":\"API setup\",\"type\":\"TASK\",\"status\":\"OPEN\",\"date\":\"2026-10-30\",\"owner\":\"Mishil\",\"confidence\":0.95},{\"temporaryId\":\"n8\",\"label\":\"Test database\",\"type\":\"TASK\",\"status\":\"OPEN\",\"owner\":\"Linh\",\"confidence\":0.95},{\"temporaryId\":\"n9\",\"label\":\"Product research\",\"type\":\"TASK\",\"status\":\"OPEN\",\"owner\":\"Jen\",\"confidence\":0.95},{\"temporaryId\":\"n10\",\"label\":\"Find 2 similar products\",\"type\":\"TASK\",\"status\":\"OPEN\",\"owner\":\"Jen\",\"confidence\":0.95},{\"temporaryId\":\"n11\",\"label\":\"Full team meeting\",\"type\":\"MILESTONE\",\"date\":\"2026-10-25\",\"confidence\":0.9}],\"edges\":[{\"sourceTemporaryId\":\"n2\",\"targetTemporaryId\":\"n1\",\"relationship\":\"PART_OF\",\"confidence\":0.9},{\"sourceTemporaryId\":\"n3\",\"targetTemporaryId\":\"n1\",\"relationship\":\"PART_OF\",\"confidence\":0.9},{\"sourceTemporaryId\":\"n4\",\"targetTemporaryId\":\"n1\",\"relationship\":\"PART_OF\",\"confidence\":0.9},{\"sourceTemporaryId\":\"n5\",\"targetTemporaryId\":\"n1\",\"relationship\":\"PART_OF\",\"confidence\":0.9},{\"sourceTemporaryId\":\"n6\",\"targetTemporaryId\":\"n1\",\"relationship\":\"PART_OF\",\"confidence\":0.9},{\"sourceTemporaryId\":\"n3\",\"targetTemporaryId\":\"n7\",\"relationship\":\"RESPONSIBLE_FOR\",\"confidence\":0.9},{\"sourceTemporaryId\":\"n6\",\"targetTemporaryId\":\"n8\",\"relationship\":\"RESPONSIBLE_FOR\",\"confidence\":0.9},{\"sourceTemporaryId\":\"n5\",\"targetTemporaryId\":\"n9\",\"relationship\":\"RESPONSIBLE_FOR\",\"confidence\":0.9},{\"sourceTemporaryId\":\"n5\",\"targetTemporaryId\":\"n10\",\"relationship\":\"RESPONSIBLE_FOR\",\"confidence\":0.9}],\"ambiguities\":[\"Light bleeding/ghost text from the previous page is visible across the top and background.\"]}"
+  },
+  {
+    "stage": "model.validated",
+    "data": {
+      "summary": "Team structure and task assignments for Hackathon Project, featuring roles for Shriya, Mishil, Sophia, Jen, and Linh, along with action items and a full team meeting scheduled on Sunday.",
+      "transcript": "Test\n\nHackathon Project\n- (design) Shriya\n- Mishil (backend)\n- Sophia (research)\n- Jen (product)\n- Linh (frontend)\n\nMishil:\n- API setup\ndue: Friday\n\nLinh:\n- Test database\n\nJen:\n- Product research\n- Find 2 similar products\n\nNOTE: Full team meeting on Sunday",
+      "nodes": [
+        {
+          "temporaryId": "n1",
+          "label": "Hackathon Project",
+          "type": "PROJECT",
+          "confidence": 0.95
+        },
+        {
+          "temporaryId": "n2",
+          "label": "Shriya",
+          "type": "PERSON",
+          "description": "design",
+          "confidence": 0.95
+        },
+        {
+          "temporaryId": "n3",
+          "label": "Mishil",
+          "type": "PERSON",
+          "description": "backend",
+          "confidence": 0.95
+        },
+        {
+          "temporaryId": "n4",
+          "label": "Sophia",
+          "type": "PERSON",
+          "description": "research",
+          "confidence": 0.95
+        },
+        {
+          "temporaryId": "n5",
+          "label": "Jen",
+          "type": "PERSON",
+          "description": "product",
+          "confidence": 0.95
+        },
+        {
+          "temporaryId": "n6",
+          "label": "Linh",
+          "type": "PERSON",
+          "description": "frontend",
+          "confidence": 0.95
+        },
+        {
+          "temporaryId": "n7",
+          "label": "API setup",
+          "type": "TASK",
+          "status": "OPEN",
+          "date": "2026-10-30",
+          "owner": "Mishil",
+          "confidence": 0.95
+        },
+        {
+          "temporaryId": "n8",
+          "label": "Test database",
+          "type": "TASK",
+          "status": "OPEN",
+          "owner": "Linh",
+          "confidence": 0.95
+        },
+        {
+          "temporaryId": "n9",
+          "label": "Product research",
+          "type": "TASK",
+          "status": "OPEN",
+          "owner": "Jen",
+          "confidence": 0.95
+        },
+        {
+          "temporaryId": "n10",
+          "label": "Find 2 similar products",
+          "type": "TASK",
+          "status": "OPEN",
+          "owner": "Jen",
+          "confidence": 0.95
+        },
+        {
+          "temporaryId": "n11",
+          "label": "Full team meeting",
+          "type": "MILESTONE",
+          "date": "2026-10-25",
+          "confidence": 0.9
+        }
+      ],
+      "edges": [
+        {
+          "sourceTemporaryId": "n2",
+          "targetTemporaryId": "n1",
+          "relationship": "PART_OF",
+          "confidence": 0.9
+        },
+        {
+          "sourceTemporaryId": "n3",
+          "targetTemporaryId": "n1",
+          "relationship": "PART_OF",
+          "confidence": 0.9
+        },
+        {
+          "sourceTemporaryId": "n4",
+          "targetTemporaryId": "n1",
+          "relationship": "PART_OF",
+          "confidence": 0.9
+        },
+        {
+          "sourceTemporaryId": "n5",
+          "targetTemporaryId": "n1",
+          "relationship": "PART_OF",
+          "confidence": 0.9
+        },
+        {
+          "sourceTemporaryId": "n6",
+          "targetTemporaryId": "n1",
+          "relationship": "PART_OF",
+          "confidence": 0.9
+        },
+        {
+          "sourceTemporaryId": "n3",
+          "targetTemporaryId": "n7",
+          "relationship": "RESPONSIBLE_FOR",
+          "confidence": 0.9
+        },
+        {
+          "sourceTemporaryId": "n6",
+          "targetTemporaryId": "n8",
+          "relationship": "RESPONSIBLE_FOR",
+          "confidence": 0.9
+        },
+        {
+          "sourceTemporaryId": "n5",
+          "targetTemporaryId": "n9",
+          "relationship": "RESPONSIBLE_FOR",
+          "confidence": 0.9
+        },
+        {
+          "sourceTemporaryId": "n5",
+          "targetTemporaryId": "n10",
+          "relationship": "RESPONSIBLE_FOR",
+          "confidence": 0.9
+        }
+      ],
+      "ambiguities": [
+        "Light bleeding/ghost text from the previous page is visible across the top and background."
+      ]
+    }
+  },
+  {
+    "stage": "notes-parser",
+    "data": {
+      "input": "transcript",
+      "nodes": [
+        "PERSON Test",
+        "PROJECT Hackathon Project",
+        "PERSON Mishil",
+        "PERSON Sophia",
+        "PERSON Jen",
+        "PERSON Linh",
+        "TASK API setup @2026-10-30 [OPEN]",
+        "TASK Test database [OPEN]",
+        "TASK Product research [OPEN]",
+        "TASK Find 2 similar products [OPEN]"
+      ],
+      "edges": [
+        "Mishil -PART_OF-> Hackathon Project",
+        "Sophia -PART_OF-> Hackathon Project",
+        "Jen -PART_OF-> Hackathon Project",
+        "Linh -PART_OF-> Hackathon Project",
+        "Mishil -RESPONSIBLE_FOR-> API setup",
+        "Linh -RESPONSIBLE_FOR-> Test database",
+        "Jen -RESPONSIBLE_FOR-> Product research",
+        "Jen -RESPONSIBLE_FOR-> Find 2 similar products"
+      ],
+      "covers": [
+        "TASK"
+      ]
+    }
+  },
+  {
+    "stage": "final",
+    "data": {
+      "summary": "Team structure and task assignments for Hackathon Project, featuring roles for Shriya, Mishil, Sophia, Jen, and Linh, along with action items and a full team meeting scheduled on Sunday.",
+      "nodes": [
+        {
+          "temporaryId": "n2",
+          "label": "Shriya",
+          "type": "PERSON",
+          "description": "design",
+          "confidence": 0.95
+        },
+        {
+          "temporaryId": "n11",
+          "label": "Full team meeting",
+          "type": "MILESTONE",
+          "date": "2026-10-25",
+          "confidence": 0.9
+        },
+        {
+          "temporaryId": "p1",
+          "label": "Test",
+          "type": "PERSON",
+          "confidence": 0.95
+        },
+        {
+          "temporaryId": "p2",
+          "label": "Hackathon Project",
+          "type": "PROJECT",
+          "confidence": 0.95
+        },
+        {
+          "temporaryId": "p3",
+          "label": "Mishil",
+          "type": "PERSON",
+          "confidence": 0.95,
+          "description": "backend"
+        },
+        {
+          "temporaryId": "p4",
+          "label": "Sophia",
+          "type": "PERSON",
+          "confidence": 0.95,
+          "description": "research"
+        },
+        {
+          "temporaryId": "p5",
+          "label": "Jen",
+          "type": "PERSON",
+          "confidence": 0.95,
+          "description": "product"
+        },
+        {
+          "temporaryId": "p6",
+          "label": "Linh",
+          "type": "PERSON",
+          "confidence": 0.95,
+          "description": "frontend"
+        },
+        {
+          "temporaryId": "p7",
+          "label": "API setup",
+          "type": "TASK",
+          "confidence": 0.95,
+          "status": "OPEN",
+          "date": "2026-10-30"
+        },
+        {
+          "temporaryId": "p8",
+          "label": "Test database",
+          "type": "TASK",
+          "confidence": 0.95,
+          "status": "OPEN"
+        },
+        {
+          "temporaryId": "p9",
+          "label": "Product research",
+          "type": "TASK",
+          "confidence": 0.95,
+          "status": "OPEN"
+        },
+        {
+          "temporaryId": "p10",
+          "label": "Find 2 similar products",
+          "type": "TASK",
+          "confidence": 0.95,
+          "status": "OPEN"
+        }
+      ],
+      "edges": [
+        {
+          "sourceTemporaryId": "n2",
+          "targetTemporaryId": "p2",
+          "relationship": "PART_OF",
+          "confidence": 0.9
+        },
+        {
+          "sourceTemporaryId": "p3",
+          "targetTemporaryId": "p2",
+          "relationship": "PART_OF",
+          "confidence": 0.9
+        },
+        {
+          "sourceTemporaryId": "p4",
+          "targetTemporaryId": "p2",
+          "relationship": "PART_OF",
+          "confidence": 0.9
+        },
+        {
+          "sourceTemporaryId": "p5",
+          "targetTemporaryId": "p2",
+          "relationship": "PART_OF",
+          "confidence": 0.9
+        },
+        {
+          "sourceTemporaryId": "p6",
+          "targetTemporaryId": "p2",
+          "relationship": "PART_OF",
+          "confidence": 0.9
+        },
+        {
+          "sourceTemporaryId": "p3",
+          "targetTemporaryId": "p2",
+          "relationship": "PART_OF",
+          "confidence": 0.95
+        },
+        {
+          "sourceTemporaryId": "p4",
+          "targetTemporaryId": "p2",
+          "relationship": "PART_OF",
+          "confidence": 0.95
+        },
+        {
+          "sourceTemporaryId": "p5",
+          "targetTemporaryId": "p2",
+          "relationship": "PART_OF",
+          "confidence": 0.95
+        },
+        {
+          "sourceTemporaryId": "p6",
+          "targetTemporaryId": "p2",
+          "relationship": "PART_OF",
+          "confidence": 0.95
+        },
+        {
+          "sourceTemporaryId": "p3",
+          "targetTemporaryId": "p7",
+          "relationship": "RESPONSIBLE_FOR",
+          "confidence": 0.95
+        },
+        {
+          "sourceTemporaryId": "p6",
+          "targetTemporaryId": "p8",
+          "relationship": "RESPONSIBLE_FOR",
+          "confidence": 0.95
+        },
+        {
+          "sourceTemporaryId": "p5",
+          "targetTemporaryId": "p9",
+          "relationship": "RESPONSIBLE_FOR",
+          "confidence": 0.95
+        },
+        {
+          "sourceTemporaryId": "p5",
+          "targetTemporaryId": "p10",
+          "relationship": "RESPONSIBLE_FOR",
+          "confidence": 0.95
+        }
+      ],
+      "ambiguities": [
+        "Light bleeding/ghost text from the previous page is visible across the top and background."
+      ]
+    }
+  },
+  {
+    "stage": "merge",
+    "data": {
+      "created": 12,
+      "matched": 0,
+      "uncertain": 0,
+      "edgesAdded": 9,
+      "edgesReinforced": 4
+    }
+  },
+  {
+    "stage": "views.actionItems",
+    "data": [
+      {
+        "id": "d8e74930-1ed2-479a-b762-187953e4953b",
+        "label": "API setup",
+        "description": null,
+        "owners": [
+          "Mishil"
+        ],
+        "due": "2026-10-30",
+        "status": "OPEN",
+        "overdue": false,
+        "raisedOn": "2026-10-24",
+        "raisedIn": "IMG_5705.JPG",
+        "lastUpdate": {
+          "on": "2026-10-24",
+          "in": "IMG_5705.JPG"
+        },
+        "meetings": [
+          "IMG_5705.JPG"
+        ]
+      },
+      {
+        "id": "729e67ec-5669-4ae6-a872-020c804e5628",
+        "label": "Test database",
+        "description": null,
+        "owners": [
+          "Linh"
+        ],
+        "due": null,
+        "status": "OPEN",
+        "overdue": false,
+        "raisedOn": "2026-10-24",
+        "raisedIn": "IMG_5705.JPG",
+        "lastUpdate": {
+          "on": "2026-10-24",
+          "in": "IMG_5705.JPG"
+        },
+        "meetings": [
+          "IMG_5705.JPG"
+        ]
+      },
+      {
+        "id": "0ebf5b06-12aa-4b96-9d46-11202c20363e",
+        "label": "Product research",
+        "description": null,
+        "owners": [
+          "Jen"
+        ],
+        "due": null,
+        "status": "OPEN",
+        "overdue": false,
+        "raisedOn": "2026-10-24",
+        "raisedIn": "IMG_5705.JPG",
+        "lastUpdate": {
+          "on": "2026-10-24",
+          "in": "IMG_5705.JPG"
+        },
+        "meetings": [
+          "IMG_5705.JPG"
+        ]
+      },
+      {
+        "id": "32ae6e7e-0b3d-4941-89c4-237b2a1c637f",
+        "label": "Find 2 similar products",
+        "description": null,
+        "owners": [
+          "Jen"
+        ],
+        "due": null,
+        "status": "OPEN",
+        "overdue": false,
+        "raisedOn": "2026-10-24",
+        "raisedIn": "IMG_5705.JPG",
+        "lastUpdate": {
+          "on": "2026-10-24",
+          "in": "IMG_5705.JPG"
+        },
+        "meetings": [
+          "IMG_5705.JPG"
+        ]
+      }
+    ]
+  }
+]
