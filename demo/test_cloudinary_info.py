@@ -76,18 +76,24 @@ class PhotoTour(unittest.TestCase):
         self.assertIn("1. After a meeting, someone photographs the whiteboard", [s.value for s in at.subheader])
         self.assertIn("Read the photo", [b.label for b in at.button])
 
-    def test_after_the_photo_cloudinary_comes_first_and_explains_itself(self):
+    def test_after_the_photo_the_results_come_first_and_the_details_wait_to_be_asked_for(self):
         at = self.run_page(with_photo=True)
         self.assertFalse(at.exception, at.exception)
         headings = [s.value for s in at.subheader]
-        self.assertLess(headings.index("How Cloudinary handled the photo"), headings.index("To-do list"), "Cloudinary first")
-        page = "\n".join(m.value for m in at.markdown)
-        for words in ("`e_improve`", "`e_sharpen:60`", "contrast", "**2. Prepared for the AI**"):
-            self.assertIn(words, page)
-        self.assertIn("This is the image the AI read", "\n".join(c.value for c in at.caption))
-        self.assertIn(ANALYSIS.split("?")[0], [c.value for c in at.code])
+        self.assertEqual(headings[:2], ["To-do list", "Cloudinary cleaned up the photo for the AI"], "results, then the photo")
+        self.assertNotIn("Decisions", headings, "no empty sections")
+        self.assertNotIn("Who's who", headings, "no reporting lines, no chart")
+        # The details are behind expanders, collapsed.
+        how = next(e for e in at.expander if e.label == "How Cloudinary did it")
+        table = "\n".join(m.value for m in how.markdown)
+        for words in ("`e_improve`", "`e_sharpen:60`", "contrast"):
+            self.assertIn(words, table)
+        self.assertIn(ANALYSIS.split("?")[0], [c.value for c in how.code])
+        read = next(e for e in at.expander if e.label == "What the AI read from the photo")
+        self.assertIn("book the bus", "\n".join(t.value for t in read.text))
         self.assertEqual(at.subheader[-1].value, "2. Now add notes, or another photo")
-        self.assertIn("&photo=1", "\n".join(c.value for c in at.code), "the tour is kept in the board's link")
+        share = next(e for e in at.expander if e.label.startswith("Your board:"))
+        self.assertIn("&photo=1", "\n".join(c.value for c in share.code), "the tour is kept in the board's link")
 
 
 if __name__ == "__main__":

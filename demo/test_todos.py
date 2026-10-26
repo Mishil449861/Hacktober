@@ -250,7 +250,7 @@ class DemoPage(unittest.TestCase):
         for label in ("Book the venue", "Order the catering", "Send the invitations", "Print the badges", "Call the hotel", "Write the agenda"):
             self.assertIn(label, page)
         self.assertIn("| **Call the hotel** | nobody yet | no date |", page)
-        self.assertIn("Your board: Team offsite · 3f2a", page)
+        self.assertTrue(any(e.label.startswith("Your board: Team offsite · 3f2a") for e in at.expander))
         self.assertIn("Use \\[brackets\\] safely", page, "decision labels are escaped")
         self.assertIn("?board=7c1e4a2b-3d5f-4e6a-8b9c-0d1e2f3a4b5c", "\n".join(c.value for c in at.code), "the board's own link is shown")
 

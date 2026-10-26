@@ -89,48 +89,40 @@ def image_bytes(url: str) -> int | None:
 
 
 def cloudinary_panel(p: dict) -> None:
-    """What Cloudinary did with a photo: the three images, each transformation in plain words (read from the
-    actual delivery URLs), and what the AI read from Cloudinary's prepared copy."""
+    """What Cloudinary did with a photo, at a glance: the photo and the cleaned-up copy the AI read, side by
+    side. The details (each transformation in plain words, read from the actual delivery URL; sizes; the
+    thumbnail; what the AI read) are one click away, not in the way."""
     cld = p.get("cloudinary")
-    st.subheader("How Cloudinary handled the photo")
     if not cld:
-        st.info("This photo was stored on the server itself, because Cloudinary isn't configured. Add the three "
-                "`CLOUDINARY_…` values to `.env` (or the app's secrets) and restart to store and prepare photos with Cloudinary.")
+        st.caption("This photo was stored on the server itself (Cloudinary isn't configured).")
         return
     clean = lambda u: (u or "").split("?")[0]  # noqa: E731  (drop the SDK analytics suffix)
     original, prepared, thumb = cld["secureUrl"], clean(p.get("analysisUrl") or p["previewUrl"]), clean(p["thumbUrl"])
-    sizes = [image_bytes(u) for u in (original, prepared, thumb)]
-    a, b, c = st.columns([5, 5, 3])
-    with a:
-        st.image(original)
-        st.markdown("**1. Uploaded and stored**")
-        st.caption(f"The original photo, untouched: {cld['width']} × {cld['height']} {cld['format'].upper()}"
-                   + (f", {size_text(sizes[0])}" if sizes[0] else "") + ". Uploaded by the OrgMap server with a signed "
-                   "request; the API secret never reaches the browser.")
-    with b:
-        st.image(prepared)
-        st.markdown("**2. Prepared for the AI**")
-        st.caption("A cleaned-up copy Cloudinary makes on the fly from the original"
-                   + (f" ({size_text(sizes[1])})" if sizes[1] else "") + ". **This is the image the AI read.**")
-    with c:
-        st.image(thumb)
-        st.markdown("**3. Thumbnail**")
-        st.caption("Smart-cropped around the content" + (f", {size_text(sizes[2])}" if sizes[2] else "") + ".")
+    st.subheader("Cloudinary cleaned up the photo for the AI")
+    a, b = st.columns(2)
+    a.image(original, caption="Your photo")
+    b.image(prepared, caption="Cloudinary's copy: brighter, sharper. This is what the AI read.")
 
-    st.markdown("**What Cloudinary did to make copy 2**, read from its address:")
-    rows = ["| In the address | What Cloudinary does |", "|---|---|"]
-    rows += [f"| `{s}` | {explain(s)} |" for s in transformation(prepared)]
-    st.markdown("\n".join(rows))
-    st.code(prepared, language=None, wrap_lines=True)
-    st.caption("Nothing is stored for copy 2 or the thumbnail in advance: Cloudinary builds them from the original "
-               "the first time the address is requested, then serves them from its CDN. Thumbnail: "
-               + "; ".join(e[:1].lower() + e[1:] for e in map(explain, transformation(thumb))) + ".")
+    with st.expander("How Cloudinary did it"):
+        sizes = [image_bytes(u) for u in (original, prepared, thumb)]
+        rows = ["| In the address | What Cloudinary does |", "|---|---|"]
+        rows += [f"| `{s}` | {explain(s)} |" for s in transformation(prepared)]
+        st.markdown("\n".join(rows))
+        st.code(prepared, language=None, wrap_lines=True)
+        st.caption("Built on the fly from the original the first time the address is requested, then served from "
+                   "Cloudinary's CDN. The original was uploaded by the OrgMap server with a signed request: the API "
+                   "secret never reaches the browser."
+                   + (f" Sizes: original {size_text(sizes[0])}, copy {size_text(sizes[1])}, thumbnail {size_text(sizes[2])}."
+                      if all(sizes) else ""))
+        t1, t2 = st.columns([1, 4])
+        t1.image(thumb)
+        t2.caption("Thumbnail: " + "; ".join(e[:1].lower() + e[1:] for e in map(explain, transformation(thumb))) + ".")
+        st.caption(f"Cloud **{status.get('cloudName')}** · asset `{cld['publicId']}` · uploaded "
+                   f"{cld['createdAt'][:16].replace('T', ' ')} UTC · [open the original]({original})")
     if p.get("ocrText"):
-        with st.expander("What the AI read from Cloudinary's copy"):
+        with st.expander("What the AI read from the photo"):
             st.text(p["ocrText"][:3000])
-            st.caption(f"Read with: {p.get('analyzedWith') or 'the AI'}. The to-do list on this page was built from this reading.")
-    st.caption(f"Cloud **{status.get('cloudName')}** · asset `{cld['publicId']}` · uploaded "
-               f"{cld['createdAt'][:16].replace('T', ' ')} UTC · [open the original]({original})")
+            st.caption(f"Read with: {p.get('analyzedWith') or 'the AI'}. The to-do list was built from this.")
 
 
 # Board ids are UUIDs. Anything else in the link is refused before it reaches a server address
@@ -350,10 +342,8 @@ items = views.get("actionItems") or []
 guided = (example and stage < 3) or (photo_tour and stage < 1)
 photos = [s for s in sources if s["type"] == "IMAGE"]
 
-with st.container(border=True):
-    st.markdown(f"**Your board: {md_text(state['workspace']['name'])}**")
-    st.caption("Only people with this link can see and edit this board. Bookmark it, or copy it to come back later "
-               "or to share the board with your team:")
+with st.expander(f"Your board: {state['workspace']['name']}  ·  share or bookmark it"):
+    st.caption("Only people with this link can see and edit this board:")
     st.code(board_link(board_id, tour), language=None, wrap_lines=True)
 
 # Notes and photos need an AI: the visitor's key when the demo has none of its own.
@@ -390,11 +380,6 @@ if stage or items:
         what = "the photo" if latest["type"] == "IMAGE" else "the latest notes"
         st.success(f"**What {what} changed**\n\n" + "\n\n".join(lines))
 
-    # The whiteboard-photo tour is about Cloudinary: show what it did first, then what the AI made of it.
-    if photo_tour and photos:
-        cloudinary_panel(photos[-1])
-        st.divider()
-
     # From the second input on, mark what the latest one added (green) and changed (orange). On the first
     # notes everything is new, so nothing is marked.
     change = latest if stage >= 2 else None
@@ -410,8 +395,12 @@ if stage or items:
     if unreadable:
         st.caption(f"{unreadable} to-do(s) had no text and aren't shown.")
 
+    # The photo the latest to-dos came from, as Cloudinary prepared it for the AI (details on request).
+    if photos:
+        cloudinary_panel(photos[-1])
+
 # ---- edit the to-do list directly (also the way to start a list without notes)
-with st.expander("Edit the to-do list: tick off, rename, reassign, change dates, add or delete",
+with st.expander("Edit the to-do list",
                  expanded=not guided and not stage and not items):
     version = st.session_state.get("edit_version", 0)
     frame = pd.DataFrame(editor_rows(items), columns=["id", "done", "todo", "who", "due"])
@@ -425,8 +414,7 @@ with st.expander("Edit the to-do list: tick off, rename, reassign, change dates,
             "due": st.column_config.DateColumn("By when", format="ddd, MMM D"),
         },
     )
-    st.caption("Click a cell to change it. Add a to-do in the empty row at the bottom. To delete, select rows on the "
-               "left and press the bin icon. Dates can be changed but not removed. Then press **Save changes**.")
+    st.caption("Change any cell, add a row at the bottom, or select rows to delete. Then press **Save changes**.")
     if st.button("Save changes", type="primary"):
         ops = plan_edits(items, edited.to_dict("records"))
         if ops:
@@ -437,21 +425,23 @@ with st.expander("Edit the to-do list: tick off, rename, reassign, change dates,
         else:
             st.info("Nothing to save: the table is unchanged.")
 
-if stage or items:
-    left, right = st.columns(2)
+# Decisions, blockers and reporting lines: only what the notes actually contained (no empty "None yet" boxes).
+people = {n["id"]: n["label"] for n in views["orgChart"]["nodes"] if n["type"] == "PERSON"}
+reports = [(e["source"], e["target"]) for e in views["orgChart"]["edges"]
+           if e["relationship"] == "REPORTS_TO" and e["source"] in people and e["target"] in people]
+open_blockers = [b for b in views["blockers"] if b["status"] == "OPEN"]
+if views["decisions"] or open_blockers or reports:
     marks = changes_by_item(done[-1] if stage >= 2 and done else None)
+    left, right = st.columns(2) if reports and (views["decisions"] or open_blockers) else (st.container(), st.container())
     with left:
-        st.subheader("Decisions")
         if views["decisions"]:
+            st.subheader("Decisions")
             for d in reversed(views["decisions"]):
                 label = md_text(d["label"])
                 if (marks.get(d.get("id")) or marks.get(d["label"].lower()) or {}).get("new"):
                     st.markdown(f"- :{NEW_COLOR}[{label}] :{NEW_COLOR}-badge[New]")
                 else:
                     st.markdown(f"- {label}")
-        else:
-            st.caption("None yet.")
-        open_blockers = [b for b in views["blockers"] if b["status"] == "OPEN"]
         if open_blockers:
             st.subheader("Blockers")
             for b in open_blockers:
@@ -459,12 +449,9 @@ if stage or items:
                 if (marks.get(b.get("id")) or marks.get(b["label"].lower()) or {}).get("new"):
                     label = f":{NEW_COLOR}[{label}] :{NEW_COLOR}-badge[New]"
                 st.markdown(f"- {label}" + (f" (blocks {md_text(', '.join(b['blocks']))})" if b["blocks"] else ""))
-    with right:
-        st.subheader("Who's who")
-        people = {n["id"]: n["label"] for n in views["orgChart"]["nodes"] if n["type"] == "PERSON"}
-        reports = [(e["source"], e["target"]) for e in views["orgChart"]["edges"]
-                   if e["relationship"] == "REPORTS_TO" and e["source"] in people and e["target"] in people]
-        if reports:
+    if reports:
+        with right:
+            st.subheader("Who's who")
             dot = ['digraph G { rankdir=BT; bgcolor="transparent"; node [shape=box style="rounded,filled" fillcolor=white '
                    'color="#2a78d6" penwidth=2 fontname=Helvetica fontsize=12]; edge [color="#898781" arrowsize=0.7];']
             # People the latest notes introduced get a green box.
@@ -475,14 +462,6 @@ if stage or items:
             dot.append("}")
             st.graphviz_chart("\n".join(dot))
             st.caption("Arrows point to the person someone reports to.")
-        elif people:
-            st.markdown(md_text(", ".join(people.values())))
-        else:
-            st.caption("Nobody mentioned yet.")
-
-    # ---- proof of what Cloudinary did with the latest photo (shown first on the whiteboard-photo tour)
-    if photos and not photo_tour:
-        cloudinary_panel(photos[-1])
 
 if failed:
     st.warning("One of the inputs couldn't be read. Try adding it again, or type the to-dos into the table above.")
@@ -507,9 +486,7 @@ elif (example and stage == 2) or (photo_tour and stage == 0):
     st.subheader("1. After a meeting, someone photographs the whiteboard" if photo_tour
                  else "3. Then someone photographs the whiteboard")
     st.image(str(WHITEBOARD), width=460)
-    st.caption("When you press the button, the photo is uploaded to Cloudinary, which stores it and prepares a "
-               "cleaned-up copy for the AI to read. The page then shows exactly what Cloudinary did."
-               + (" Connect your AI above first." if blocked else ""))
+    st.caption("Cloudinary cleans it up, then the AI reads it." + (" Connect your AI above first." if blocked else ""))
     mine = None
     with st.expander("Use my own photo instead (handwritten notes, a whiteboard, sticky notes)"):
         mine = own_photo(f"photo-{stage}")
@@ -524,12 +501,11 @@ else:
         st.subheader("2. Now add notes, or another photo")
     else:
         st.subheader("Add more notes" if stage else "Add your first notes")
-    hint = ("For example:\n- Sam: write the agenda by Friday\n- Maya: book the room by Oct 30\n"
-            "Decision: we meet every Monday.\nChloe has ordered the catering. Done.")
-    text = st.text_area("Notes", "", height=140, key=f"notes-{stage}", label_visibility="collapsed", placeholder=hint)
-    st.caption("Write it the way you would in a meeting: who, what, by when. Later notes like \"… Done.\" tick things off."
-               + (" Connect your AI above first." if blocked else ""))
-    with st.expander("Or add a photo (handwritten notes, a whiteboard, sticky notes)"):
+    hint = "e.g. Sam: write the agenda by Friday"
+    text = st.text_area("Notes", "", height=110, key=f"notes-{stage}", label_visibility="collapsed", placeholder=hint)
+    if blocked:
+        st.caption("Connect your AI above first.")
+    with st.expander("Or add a photo"):
         mine = own_photo(f"free-{stage}")
     if st.button("Add", type="primary", disabled=blocked or not (text.strip() or mine)) and read(ws_id, today, text, mine):
         st.rerun()
