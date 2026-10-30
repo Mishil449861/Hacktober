@@ -66,6 +66,10 @@ const EVENT_NOUN: Record<string, string> = {
   launch: 'launch', release: 'release', demo: 'demo', 'kick off': 'kickoff', 'roll out': 'rollout', 'cut over': 'cutover',
   'go live': 'go-live', freeze: 'freeze', ship: '', deploy: '', deliver: '', present: '', start: '', finish: '', complete: '',
 }
+/** "NOTE: Full team meeting on 2026-11-01", "Demo day 2026-10-30": a meeting or event and its date (after normalizeDates). */
+const SCHEDULED = new RegExp(`^(?:(?:note|reminder|fyi|nb)\\s*[:\\-–]\\s*)?(?:the\\s+|our\\s+)?([A-Za-z0-9 '&-]{0,40}?\\b(?:meeting|sync|stand-?up|` +
+  `demo(?: day)?|presentation|workshop|retro(?:spective)?|kick-?off|check-?in|all-hands|offsite|hackathon))\\s+(?:is\\s+|will be\\s+)?` +
+  `(?:on\\s+)?(${DATE.source})[\\s.!]*$`, 'i')
 const EVENT = new RegExp(`\\b(?:agreed|decided|committed|plan(?:s|ned)?|aim(?:s|ing)?|going)\\s+to\\s+(${Object.keys(EVENT_NOUN).join('|').replace(/ /g, '[\\s-]')})\\s+(.*?)\\s*(?:\\b(?:on|by)\\s+)?(${DATE.source})`, 'i')
 
 /** "finish the redesign", not "presented the shortlist" or "the budget is approved": the item asks for work. */
@@ -104,10 +108,14 @@ const STRUCK = /^(?:[-*•—–]\s*)?~~.+~~$/
 const STRUCK_IN_PHOTO = /^[—–―](?=\p{L})/u
 const struckText = (line: string) => clean(line.replace(/~~/g, '').replace(/^[-*•—–―\s]+/, ''))
 
-/** A parse with its crossed-out items (from any reading of the same input) removed, nodes and edges. */
+/**
+ * A parse with its crossed-out items (from any reading of the same input) removed, nodes and edges.
+ * Items marked done stay: crossing off a known to-do is how it gets ticked off (see parseMinutes).
+ */
 export function dropStruck(p: ParsedMinutes, struck: string[]): ParsedMinutes {
   const isStruck = (label: string) => struck.some((s) => normalize(s) === normalize(label) || similarity(s, label) >= 0.75)
-  const gone = new Set(p.nodes.filter((n) => n.type !== 'PERSON' && n.type !== 'TEAM' && isStruck(n.label)).map((n) => n.temporaryId))
+  const gone = new Set(p.nodes.filter((n) => n.type !== 'PERSON' && n.type !== 'TEAM' && n.status !== 'DONE' && n.status !== 'RESOLVED' &&
+    isStruck(n.label)).map((n) => n.temporaryId))
   return {
     ...p,
     nodes: p.nodes.filter((n) => !gone.has(n.temporaryId)),
@@ -462,6 +470,11 @@ export function parseMinutes(
   }
   names = ownerNames(lines, assignment)
   const nextLine = (i: number) => lines.slice(i + 1).find((l) => l.trim())
+  /** The next line is a "DUE: Oct 14" / "- due: Friday" line. */
+  const dueBelow = (i: number) => {
+    const below = nextLine(i)
+    return !!below && DUE_LINE.test(normalizeDates(below.trim().replace(BULLET, ''), ctx.meetingDate))
+  }
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i]
     const line = raw.trim()
@@ -476,13 +489,24 @@ export function parseMinutes(
     blanks = 0
     if (STRUCK.test(line) || (ctx.photo && STRUCK_IN_PHOTO.test(line))) {
       const what = struckText(line)
-      if (what) struck.push(what)
+      // Crossing off an item the board already has ticks it off; anything else crossed out is cancelled.
+      const known = what && (ctx.knownEntities ?? [])
+        .filter((e) => e.type === 'TASK' || e.type === 'BLOCKER')
+        .map((e) => ({ e, s: mentionScore(what, e.label) })).filter((x) => x.s >= 0.6).sort((a, b) => b.s - a.s)[0]?.e
+      if (known) {
+        const node = addNode(known.label, known.type as NodeType, { status: known.type === 'BLOCKER' ? 'RESOLVED' : 'DONE' })
+        if (node.type === 'TASK') {
+          covers.add('TASK')
+          if (block) addEdge(block.owner, node, 'RESPONSIBLE_FOR')
+        }
+      } else if (what) struck.push(what)
       continue
     }
 
     // A name heading ("Maya:", "## Maya", or a bare "Maya" the layout marks as one) starts that person's list.
     const head = nameHeading(line)
-    if (head && !knownAs(head.name, false) && (head.explicit || names.has(head.name.toLowerCase()))) {
+    // "API Setup" over "- due: Friday" looks like a name, but people have no due dates: it's a to-do.
+    if (head && !knownAs(head.name, false) && (head.explicit || (names.has(head.name.toLowerCase()) && !dueBelow(i)))) {
       block = { owner: ownerNode(head.name), plain: true }
       section = 'owner'
       group = []
@@ -563,7 +587,7 @@ export function parseMinutes(
       section = ''
       continue
     }
-    const member = isItem && roster && rawItem.match(new RegExp(`^(${NAME})\\s*\\(([^()]{2,40})\\)\\s*$`))
+    const member = roster && rawItem.match(new RegExp(`^(${NAME})\\s*\\(([^()]{2,40})\\)\\s*$`))
     // "- Logo (Ben)" would be Ben's to-do; a role is not a name.
     if (member && roster && isName(member[1]) && !isName(member[2].trim())) {
       addEdge(person(displayName(member[1]), clean(member[2])), roster, 'PART_OF')
@@ -648,10 +672,9 @@ export function parseMinutes(
       block = undefined
       section = ''
     }
-    // "Fix login" with "DUE Oct 20" under it: an action item, with nobody named.
-    const below = nextLine(i)
-    if (!block && !isItem && !listMode && !['decisions', 'risks', 'milestones'].includes(section) && below &&
-        DUE_LINE.test(normalizeDates(below.trim(), ctx.meetingDate)) && line.split(/\s+/).length <= 8 && !headingOf(below.trim())) {
+    // "Fix login" with "DUE Oct 20" (or "- due: Friday") under it: an action item, with nobody named.
+    if (!block && !isItem && !listMode && !['decisions', 'risks', 'milestones'].includes(section) && dueBelow(i) &&
+        line.split(/\s+/).length <= 8 && !headingOf(nextLine(i)!.trim())) {
       listItem(raw, item)
       continue
     }
@@ -710,7 +733,8 @@ export function parseMinutes(
     const todo = item.match(/^(?:todo|to do|action(?: item)?|ai)\s*[:\-–]\s*(.+)$/i)
     const due = item.match(DUE_ANY)
     // "Ben: book the venue by Oct 10" or "Ben will book the venue by Friday"
-    const colonOwner = item.match(new RegExp(`^(${OWNERS}|[A-Z][A-Za-z ]*Team)\\s*[:\\-–]\\s*(\\S.*)$`))
+    // A dash only separates with a space before it: "Load-test the API" is not Load's to-do.
+    const colonOwner = item.match(new RegExp(`^(${OWNERS}|[A-Z][A-Za-z ]*Team)(?:\\s*:|\\s+[-–])\\s*(\\S.*)$`))
     const commitOwner = item.match(new RegExp(`^(${OWNERS}) ${COMMIT} (\\S.*)$`))
     const ownerFirst = !!colonOwner || !!commitOwner
     const listSection = !['milestones', 'risks', 'decisions', 'updates'].includes(section)
@@ -728,6 +752,15 @@ export function parseMinutes(
       (NEED.test(item) && asksForWork(item.match(NEED)![1])))
     const looseTask = !!todo || bulletTask || (!!due && (ownerFirst || ownerlessDue) && listSection)
 
+    // "NOTE: Full team meeting on Sunday", "Demo day on Oct 30": a scheduled meeting, not anyone's to-do.
+    const meeting = !looseTask && !due && !(commitOwner && named(commitOwner[1])) && !['decisions', 'risks'].includes(section) &&
+      item.match(SCHEDULED)
+    // "Weekly sync Oct 6" at the top of the Oct 6 notes is their title, not an upcoming event.
+    if (meeting && (!ctx.meetingDate || meeting[2] > ctx.meetingDate)) {
+      last = addNode(cap(clean(meeting[1])), 'MILESTONE', { date: meeting[2], status: 'OPEN' })
+      continue
+    }
+
     if (!isItem && !looseTask && !listMode) continue
 
     if (section === 'actions' || looseTask) {
@@ -736,7 +769,7 @@ export function parseMinutes(
       // "Raj Patel: draft the target architecture (due 2026-09-12)." / "Raj to draft ..." / "polish UI (Maya)"
       let body = (todo ? todo[1] : item).replace(due?.[0] ?? '', '').replace(DONE_MARK, '').replace(OPEN_MARK, '')
       let owners: string[] = []
-      const colon = body.match(new RegExp(`^(${OWNERS}|[A-Z][A-Za-z ]*Team)\\s*[:\\-–]\\s*(.+)$`))
+      const colon = body.match(new RegExp(`^(${OWNERS}|[A-Z][A-Za-z ]*Team)(?:\\s*:|\\s+[-–])\\s*(.+)$`))
       const to = body.match(new RegExp(`^(${OWNERS}) ${COMMIT} (.+)$`))
       const paren = body.match(new RegExp(`^(.+?)\\s*\\((${OWNERS})\\)\\s*$`))
       const need = body.match(NEED)
