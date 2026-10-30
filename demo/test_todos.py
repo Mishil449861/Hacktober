@@ -274,16 +274,18 @@ class HostedPage(unittest.TestCase):
     PROVIDERS = [{"id": "gemini", "label": "Google Gemini", "defaultModel": "gemini-3.8-flash", "keyUrl": "https://aistudio.google.com/apikey"},
                  {"id": "openai", "label": "OpenAI", "keyUrl": "https://platform.openai.com/api-keys"}]
 
-    def run_page(self, board=None, key=None, check_ok=True, click=None, text=None):
+    def run_page(self, board=None, key=None, check_ok=True, click=None, text=None, sources=(), changes=()):
         from streamlit.testing.v1 import AppTest
 
-        views = {"actionItems": [], "changes": [], "decisions": [], "blockers": [], "orgChart": {"nodes": [], "edges": []}}
+        views = {"actionItems": [], "changes": list(changes), "decisions": [], "blockers": [], "orgChart": {"nodes": [], "edges": []}}
         responses = {
             "/api/status": {"reachable": False, "cloudinary": False, "aiProviders": self.PROVIDERS},
             "/api/workspaces/7c1e4a2b-3d5f-4e6a-8b9c-0d1e2f3a4b5c/views": views,
-            "/api/workspaces/7c1e4a2b-3d5f-4e6a-8b9c-0d1e2f3a4b5c": {"workspace": {"id": "7c1e4a2b-3d5f-4e6a-8b9c-0d1e2f3a4b5c", "name": "Board · 0000"}, "sources": [], "nodes": [], "edges": []},
+            "/api/workspaces/7c1e4a2b-3d5f-4e6a-8b9c-0d1e2f3a4b5c": {"workspace": {"id": "7c1e4a2b-3d5f-4e6a-8b9c-0d1e2f3a4b5c", "name": "Board · 0000"}, "sources": list(sources), "nodes": [], "edges": []},
             "/api/workspaces/7c1e4a2b-3d5f-4e6a-8b9c-0d1e2f3a4b5c/sources": [{"id": "s1"}],
             "/api/ai/check": {"ok": True} if check_ok else {"ok": False, "error": "401 API key not valid"},
+            "/api/sources/s9/analyze": {"id": "s9"},
+            "/api/sources/s9": {"ok": True},
         }
         calls = []
 
@@ -345,6 +347,42 @@ class HostedPage(unittest.TestCase):
         self.assertEqual(len(sent), 1)
         self.assertEqual({k: sent[0][k] for k in ("ai_provider", "ai_key", "ai_model")},
                          {"ai_provider": "gemini", "ai_key": "AIza-test", "ai_model": "gemini-3.8-flash"})
+
+    KEY = {"provider": "gemini", "key": "AIza-test", "model": "gemini-3.8-flash", "label": "Google Gemini"}
+    FAILED = {"sources": [{"id": "s9", "type": "IMAGE", "name": "notes.jpg", "status": "ERROR", "createdAt": "2026-10-24T10:00:00Z",
+                           "error": "Google Gemini answered 503 (The model is overloaded. Please try again later.)"}],
+              "changes": [{"sourceId": "s9", "name": "notes.jpg", "type": "IMAGE", "status": "ERROR",
+                           "created": [], "statusChanges": [], "dateChanges": []}]}
+
+    def test_a_failed_photo_says_which_and_why(self):
+        at, _ = self.run_page(board="7c1e4a2b-3d5f-4e6a-8b9c-0d1e2f3a4b5c", key=self.KEY, **self.FAILED)
+        self.assertFalse(at.exception, at.exception)
+        warning = "\n".join(w.value for w in at.warning)
+        self.assertIn('The photo "notes.jpg" couldn\'t be read', warning)
+        self.assertIn("The model is overloaded", warning)
+        self.assertEqual(at.subheader[0].value, "Add your first notes", "a failed input doesn't count as a step done")
+
+    def test_a_failed_photo_can_be_read_again_with_the_visitors_key(self):
+        at, calls = self.run_page(board="7c1e4a2b-3d5f-4e6a-8b9c-0d1e2f3a4b5c", key=self.KEY, click=("Try again", None), **self.FAILED)
+        self.assertFalse(at.exception, at.exception)
+        self.assertIn(("POST", "/api/sources/s9/analyze", {"ai_provider": "gemini", "ai_key": "AIza-test", "ai_model": "gemini-3.8-flash"}), calls)
+
+    def test_a_failed_photo_can_be_removed(self):
+        at, calls = self.run_page(board="7c1e4a2b-3d5f-4e6a-8b9c-0d1e2f3a4b5c", key=self.KEY, click=("Remove it", None), **self.FAILED)
+        self.assertFalse(at.exception, at.exception)
+        self.assertIn(("DELETE", "/api/sources/s9", {}), calls)
+
+    def test_trying_again_needs_a_key(self):
+        at, _ = self.run_page(board="7c1e4a2b-3d5f-4e6a-8b9c-0d1e2f3a4b5c", **self.FAILED)
+        self.assertTrue(next(b for b in at.button if b.label == "Try again").disabled)
+
+    def test_waiting_is_for_the_new_notes_only(self):
+        """Another input stuck "reading" on the board must not hold up new notes for 10 minutes."""
+        stuck = {"id": "old", "type": "TEXT", "name": "Notes", "status": "ANALYZING", "createdAt": "2026-10-24T09:00:00Z"}
+        at, calls = self.run_page(board="7c1e4a2b-3d5f-4e6a-8b9c-0d1e2f3a4b5c", key=self.KEY, text="- Sam: write the agenda by Friday", click=("Add", None), sources=[stuck])
+        self.assertFalse(at.exception, at.exception)
+        self.assertFalse(at.warning and any("10 minutes" in w.value for w in at.warning))
+        self.assertLess(sum(1 for m, p, _ in calls if m == "GET" and p == "/api/workspaces/7c1e4a2b-3d5f-4e6a-8b9c-0d1e2f3a4b5c"), 10)
 
 
 if __name__ == "__main__":

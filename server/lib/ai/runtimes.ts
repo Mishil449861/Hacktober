@@ -27,7 +27,7 @@ export interface LocalRuntime {
 const TIMEOUT_MS = Number(process.env.LOCAL_AI_TIMEOUT_MS ?? 600_000)
 
 class HttpError extends Error {
-  constructor(message: string, readonly status: number) { super(message) }
+  constructor(message: string, readonly status: number, readonly body: string, readonly retryAfterS?: number) { super(message) }
 }
 
 async function post(url: string, body: unknown, headers: Record<string, string> = {}) {
@@ -37,8 +37,31 @@ async function post(url: string, body: unknown, headers: Record<string, string> 
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(TIMEOUT_MS),
   })
-  if (!res.ok) throw new HttpError(`${url} -> ${res.status} ${(await res.text()).slice(0, 600)}`, res.status)
+  if (!res.ok) {
+    const text = (await res.text()).slice(0, 600)
+    const retryAfter = Number(res.headers.get('retry-after'))
+    throw new HttpError(`${url} -> ${res.status} ${text}`, res.status, text, retryAfter > 0 ? retryAfter : undefined)
+  }
   return res.json()
+}
+
+/** Rate limited or briefly unavailable ("model overloaded"): worth asking again shortly. */
+const TRANSIENT = new Set([429, 500, 502, 503, 504])
+/** Seconds to wait before each retry of a transient error (a provider's Retry-After wins, up to 30 s). */
+export const RETRY_DELAYS_S = [2, 6, 15]
+
+/** post(), retrying transient errors. Hosted providers' free tiers return 429/503 often enough to matter. */
+async function postRetrying(url: string, body: unknown, headers: Record<string, string>) {
+  for (let i = 0; ; i++) {
+    try {
+      return await post(url, body, headers)
+    } catch (e) {
+      if (!(e instanceof HttpError) || !TRANSIENT.has(e.status) || i >= RETRY_DELAYS_S.length) throw e
+      const wait = Math.min(30, e.retryAfterS ?? RETRY_DELAYS_S[i])
+      console.warn(`[ai] ${e.status} from ${new URL(url).host}, retrying in ${wait} s`)
+      await new Promise((r) => setTimeout(r, wait * 1000))
+    }
+  }
 }
 
 /** The image type from its first bytes, for the data: URL (providers check it matches). */
@@ -229,10 +252,15 @@ export function openAiCompatRuntime(cfg?: OpenAiCompatConfig): LocalRuntime {
       ]
       for (let i = 0; ; i++) {
         try {
-          const json = (await post(`${base}/chat/completions`, attempts[i], auth)) as { choices?: { message?: { content?: string | null } }[] }
+          const json = (await postRetrying(`${base}/chat/completions`, attempts[i], auth)) as { choices?: { message?: { content?: string | null } }[] }
           return json.choices?.[0]?.message?.content ?? ''
         } catch (e) {
-          if (!(e instanceof HttpError) || e.status !== 400 || i === attempts.length - 1) throw e
+          if (e instanceof HttpError && e.status === 400 && i < attempts.length - 1) continue
+          // A visitor's provider: say who answered what, in words (the page shows it), not a URL and a JSON body.
+          const who = cfg && (AI_PROVIDERS[cfg.name]?.label ?? cfg.name)
+          if (who && e instanceof HttpError) throw new Error(`${who} answered ${e.status} (${providerMessage(e.body)})`)
+          if (who) throw new Error(`${who} didn't answer (${(e as Error).name === 'TimeoutError' ? `nothing within ${TIMEOUT_MS / 1000} s` : (e as Error).message})`)
+          throw e
         }
       }
     },

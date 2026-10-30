@@ -5,7 +5,8 @@ import assert from 'node:assert/strict'
 
 process.env.LOCAL_AI_PROVIDER = 'ollama'
 process.env.OLLAMA_BASE_URL = 'http://127.0.0.1:9'
-const { AI_PROVIDERS, checkKey, createRuntime, imageMime, keyRuntime, providerMessage, withAi } = await import('../server/lib/ai/runtimes.ts')
+const { AI_PROVIDERS, RETRY_DELAYS_S, checkKey, createRuntime, imageMime, keyRuntime, providerMessage, withAi } = await import('../server/lib/ai/runtimes.ts')
+RETRY_DELAYS_S.fill(0) // retry at once in tests
 
 type Call = { url: string; headers: Record<string, string>; body: Record<string, unknown> }
 /** Replace fetch: record every call, answer with `reply(call)` (status, json). */
@@ -100,8 +101,22 @@ test('providerMessage keeps the human part of an error body', () => {
 test('other errors are not retried, and say what the provider said', async () => {
   const f = fakeFetch(() => [401, { error: 'API key not valid' }])
   try {
-    await assert.rejects(keyRuntime({ provider: 'gemini', apiKey: 'bad' }).chat(req), /401 .*API key not valid/)
+    await assert.rejects(keyRuntime({ provider: 'gemini', apiKey: 'bad' }).chat(req), /^Error: Google Gemini answered 401 \(API key not valid\)$/)
     assert.equal(f.calls.length, 1)
+  } finally { f.restore() }
+})
+
+test('a rate limit or "model overloaded" is asked again, then gives up saying why', async () => {
+  let n = 0
+  let f = fakeFetch(() => (++n <= 2 ? [503, { error: { message: 'The model is overloaded. Please try again later.' } }] : ok('{"ok":true}')))
+  try {
+    assert.equal(await keyRuntime({ provider: 'gemini', apiKey: 'k' }).chat(req), '{"ok":true}')
+    assert.equal(f.calls.length, 3, 'two 503s, then the answer')
+  } finally { f.restore() }
+  f = fakeFetch(() => [429, { error: { message: 'Resource has been exhausted (e.g. check quota).' } }])
+  try {
+    await assert.rejects(keyRuntime({ provider: 'gemini', apiKey: 'k' }).chat(req), /^Error: Google Gemini answered 429 \(Resource has been exhausted/)
+    assert.equal(f.calls.length, 1 + RETRY_DELAYS_S.length)
   } finally { f.restore() }
 })
 

@@ -13,7 +13,11 @@ import { normalize, similarity } from '../graph/text.ts'
 type XNode = Extraction['nodes'][number]
 type XEdge = Extraction['edges'][number]
 
-export interface KnownEntity { label: string; type: string; status?: string }
+/**
+ * `owners`: who a known TASK is assigned to, so "Linh finished testing" finds Linh's testing task.
+ * `date`: its current due/target date, so "now due 2 days later" can be worked out.
+ */
+export interface KnownEntity { label: string; type: string; status?: string; date?: string; owners?: string[] }
 export interface ParsedMinutes {
   nodes: XNode[]
   edges: XEdge[]
@@ -62,6 +66,10 @@ const EVENT_NOUN: Record<string, string> = {
   launch: 'launch', release: 'release', demo: 'demo', 'kick off': 'kickoff', 'roll out': 'rollout', 'cut over': 'cutover',
   'go live': 'go-live', freeze: 'freeze', ship: '', deploy: '', deliver: '', present: '', start: '', finish: '', complete: '',
 }
+/** "NOTE: Full team meeting on 2026-11-01", "Demo day 2026-10-30": a meeting or event and its date (after normalizeDates). */
+const SCHEDULED = new RegExp(`^(?:(?:note|reminder|fyi|nb)\\s*[:\\-–]\\s*)?(?:the\\s+|our\\s+)?([A-Za-z0-9 '&-]{0,40}?\\b(?:meeting|sync|stand-?up|` +
+  `demo(?: day)?|presentation|workshop|retro(?:spective)?|kick-?off|check-?in|all-hands|offsite|hackathon))\\s+(?:is\\s+|will be\\s+)?` +
+  `(?:on\\s+)?(${DATE.source})[\\s.!]*$`, 'i')
 const EVENT = new RegExp(`\\b(?:agreed|decided|committed|plan(?:s|ned)?|aim(?:s|ing)?|going)\\s+to\\s+(${Object.keys(EVENT_NOUN).join('|').replace(/ /g, '[\\s-]')})\\s+(.*?)\\s*(?:\\b(?:on|by)\\s+)?(${DATE.source})`, 'i')
 
 /** "finish the redesign", not "presented the shortlist" or "the budget is approved": the item asks for work. */
@@ -100,10 +108,14 @@ const STRUCK = /^(?:[-*•—–]\s*)?~~.+~~$/
 const STRUCK_IN_PHOTO = /^[—–―](?=\p{L})/u
 const struckText = (line: string) => clean(line.replace(/~~/g, '').replace(/^[-*•—–―\s]+/, ''))
 
-/** A parse with its crossed-out items (from any reading of the same input) removed, nodes and edges. */
+/**
+ * A parse with its crossed-out items (from any reading of the same input) removed, nodes and edges.
+ * Items marked done stay: crossing off a known to-do is how it gets ticked off (see parseMinutes).
+ */
 export function dropStruck(p: ParsedMinutes, struck: string[]): ParsedMinutes {
   const isStruck = (label: string) => struck.some((s) => normalize(s) === normalize(label) || similarity(s, label) >= 0.75)
-  const gone = new Set(p.nodes.filter((n) => n.type !== 'PERSON' && n.type !== 'TEAM' && isStruck(n.label)).map((n) => n.temporaryId))
+  const gone = new Set(p.nodes.filter((n) => n.type !== 'PERSON' && n.type !== 'TEAM' && n.status !== 'DONE' && n.status !== 'RESOLVED' &&
+    isStruck(n.label)).map((n) => n.temporaryId))
   return {
     ...p,
     nodes: p.nodes.filter((n) => !gone.has(n.temporaryId)),
@@ -112,8 +124,10 @@ export function dropStruck(p: ParsedMinutes, struck: string[]): ParsedMinutes {
   }
 }
 const ISO_ONLY = new RegExp(`^(?:due|by)?\\s*[:\\-–]?\\s*(${DATE.source})[\\s.]*$`, 'i')
-const DUE_LINE = new RegExp(`^(?:due|by|deadline|until)\\s*[:\\-–]?\\s*(${DATE.source})[\\s.]*$`, 'i')
-const DUE_INLINE = new RegExp(`[(\\[,;]?\\s*\\b(?:due|deadline)\\s*[:\\-–]?\\s*(${DATE.source})\\s*[)\\],;]?`, 'i')
+const DUE_LINE = new RegExp(`^(?:due|by|deadline|until)\\s*[:\\-–]?\\s*(?:on\\s+)?(${DATE.source})[\\s.]*$`, 'i')
+const DUE_INLINE = new RegExp(`[(\\[,;]?\\s*\\b(?:due|deadline)\\s*[:\\-–]?\\s*(?:on\\s+)?(${DATE.source})\\s*[)\\],;]?`, 'i')
+/** "by 2026-10-30", "due on 2026-10-30", ", which is due 2026-10-29": an item's due date, with the words to cut from its label. */
+export const DUE_ANY = new RegExp(`\\(?\\s*(?:,?\\s*(?:which|that)\\s+(?:is|are)\\s+)?\\b(?:due|by|deadline)\\s*[:\\-–]?\\s*(?:on\\s+)?(${DATE.source})\\s*\\)?`, 'i')
 const OWNER_TYPES = new Set(['PERSON', 'TEAM'])
 const STATUS_ONLY =/^(?:todo|to do|open|not started|done|complete[d]?|finished|in progress|wip|started|doing|halfway)$/i
 /** "ALL → Oct 23": the whole group, not a person. */
@@ -130,6 +144,14 @@ const NOT_NAMES = new Set([
   'discussion', 'intro', 'reminders', 'tbd', 'week',
 ])
 const NAME_ONLY = new RegExp(`^${NAME}$`)
+const NUMBER: Record<string, number> = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 }
+const COUNT = `(\\d+|an?|one|two|three|four|five|six|seven|eight|nine|ten)`
+/** "2 days later", "a week earlier" / "pushed back by 3 days", "brought forward by a week": a date moved by an amount. */
+const SHIFT = new RegExp(`\\b${COUNT}\\s+(days?|weeks?)\\s+(later|earlier|sooner|back|out)\\b|` +
+  `\\b(pushed|moved|delayed|postponed|extended|slipped|brought forward|pulled in)\\s+(?:back\\s+|out\\s+|forward\\s+)?by\\s+${COUNT}\\s+(days?|weeks?)\\b`, 'i')
+/** "Hackathon Project" on its own line: what the list below is about. */
+const PROJECT_WORD = /\s(?:project|program|programme|initiative)$/i
+const PROJECT_LINE = /^([A-Z][A-Za-z0-9&' -]{1,40}\s(?:Project|Program|Programme|Initiative))\s*:?$/
 const NAME_HEAD = new RegExp(`^(?:#{1,6}\\s+)?\\**(${NAME})\\**\\s*(:?)\\**\\s*$`)
 
 /** A person's or team's name, not a section word, month, weekday or all-caps title ("WEEKLY SYNC"). */
@@ -137,6 +159,8 @@ function isName(s: string) {
   const t = s.trim()
   if (!NAME_ONLY.test(t) || NOT_NAMES.has(t.toLowerCase())) return false
   if (SECTION.some(([re]) => re.test(t)) || new RegExp(`^(?:${MONTH}|${WEEKDAY})$`, 'i').test(t)) return false
+  // "Hackathon Project", "Mobile Program": what a list is about, not who.
+  if (PROJECT_WORD.test(t)) return false
   return !(t.includes(' ') && t === t.toUpperCase())
 }
 /** "MAYA" -> "Maya", so a name in block capitals matches the same person written normally. */
@@ -203,8 +227,10 @@ function splitProse(text: string): string[] {
 const sameStem = (a: string, b: string) => a === b || (Math.min(a.length, b.length) >= 4 && (a.startsWith(b) || b.startsWith(a)))
 
 /** Share of an entity's content words that appear in a line (prefix-stemmed). */
-function mentionScore(line: string, label: string) {
-  const lt = tokens(line), et = tokens(label)
+export function mentionScore(line: string, label: string) {
+  const words = tokens(line), et = tokens(label)
+  // "set up" for "setup", "log in" for "login": a pair of words written as one.
+  const lt = [...words, ...words.slice(1).map((w, i) => (words[i] + w).slice(0, 5))]
   if (!et.length) return 0
   const hit = et.filter((t) => lt.some((l) => sameStem(l, t))).length
   return hit < Math.min(2, et.length) ? 0 : hit / et.length
@@ -335,7 +361,37 @@ export function parseMinutes(
   let listMode = false
   /** Kanban column heading ("DONE:", "DOING:") giving the status of the items under it. */
   let columnStatus: NodeStatus | undefined
+  /** Under "Hackathon Project": "- Shriya (design)" lines are its members and their roles (until a blank line). */
+  let roster: XNode | undefined
   let blanks = 1
+
+  /**
+   * A line reporting that someone did a known to-do, in the to-do's own verb: "Linh has tested the database",
+   * "Ben booked the venue", "Linh finished testing". The rest of the line says which to-do; when it names none
+   * ("Linh finished testing"), the speaker's only to-do with that verb is the one.
+   */
+  const didTask = (line: string) => {
+    if (NEGATION.test(line)) return undefined
+    const m = line.match(new RegExp(`^(${OWNERS}|[Ww]e|[Tt]hey|I|[Hh]e|[Ss]he)\\s+(?:(?:has|have|had)\\s+)?` +
+      `(?:(?:just|already|finally|now|also)\\s+)?(finished\\s+|completed\\s+|done with\\s+)?([a-z]+)\\b(.*)$`))
+    if (!m) return undefined
+    const [, who, finished, word, rest] = m
+    const stem = IRREGULAR[word] ?? (finished && /ing$/.test(word) ? word.slice(0, -3)
+      : /ed$/.test(word) && !NOT_PAST.has(word) && word !== 'started' ? word.replace(/ied$/, 'y').replace(/ed$/, '') : undefined)
+    if (!stem || stem.length < 2) return undefined
+    const verb = tokens(stem)[0] ?? stem
+    const pool = [
+      ...(ctx.knownEntities ?? []).filter((e) => e.type === 'TASK'),
+      ...nodes.filter((x) => x.type === 'TASK').map((x) => ({ label: x.label, owners: undefined as string[] | undefined })),
+    ].filter((e) => tokens(e.label).some((t) => sameStem(t, verb)))
+    const byMention = pool.map((e) => ({ e, s: mentionScore(line, e.label) })).filter((x) => x.s >= 0.6).sort((a, b) => b.s - a.s)[0]?.e
+    if (byMention) return byMention
+    // Nothing after the verb but "today" and the like: whose to-do it is decides.
+    if (tokens(rest).some((t) => !/^(?:\d|today|yeste|earli|alrea|this|week|morni|after|eveni|last|night)/.test(t))) return undefined
+    const names = splitOwners(who).map((n) => normalize(n).split(' ')[0])
+    const theirs = pool.filter((e) => 'owners' in e && e.owners?.some((o) => names.includes(normalize(o).split(' ')[0])))
+    return theirs.length === 1 ? theirs[0] : undefined
+  }
 
   /** A "DUE ..." line or "→ Oct 23" applies to the open, undated items above it, else to the item just above. */
   const applyDue = (date: string) => {
@@ -414,6 +470,11 @@ export function parseMinutes(
   }
   names = ownerNames(lines, assignment)
   const nextLine = (i: number) => lines.slice(i + 1).find((l) => l.trim())
+  /** The next line is a "DUE: Oct 14" / "- due: Friday" line. */
+  const dueBelow = (i: number) => {
+    const below = nextLine(i)
+    return !!below && DUE_LINE.test(normalizeDates(below.trim().replace(BULLET, ''), ctx.meetingDate))
+  }
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i]
     const line = raw.trim()
@@ -422,18 +483,30 @@ export function parseMinutes(
       if (++blanks >= 2) block = undefined
       group = []
       listMode = false
+      roster = undefined
       continue
     }
     blanks = 0
     if (STRUCK.test(line) || (ctx.photo && STRUCK_IN_PHOTO.test(line))) {
       const what = struckText(line)
-      if (what) struck.push(what)
+      // Crossing off an item the board already has ticks it off; anything else crossed out is cancelled.
+      const known = what && (ctx.knownEntities ?? [])
+        .filter((e) => e.type === 'TASK' || e.type === 'BLOCKER')
+        .map((e) => ({ e, s: mentionScore(what, e.label) })).filter((x) => x.s >= 0.6).sort((a, b) => b.s - a.s)[0]?.e
+      if (known) {
+        const node = addNode(known.label, known.type as NodeType, { status: known.type === 'BLOCKER' ? 'RESOLVED' : 'DONE' })
+        if (node.type === 'TASK') {
+          covers.add('TASK')
+          if (block) addEdge(block.owner, node, 'RESPONSIBLE_FOR')
+        }
+      } else if (what) struck.push(what)
       continue
     }
 
     // A name heading ("Maya:", "## Maya", or a bare "Maya" the layout marks as one) starts that person's list.
     const head = nameHeading(line)
-    if (head && !knownAs(head.name, false) && (head.explicit || names.has(head.name.toLowerCase()))) {
+    // "API Setup" over "- due: Friday" looks like a name, but people have no due dates: it's a to-do.
+    if (head && !knownAs(head.name, false) && (head.explicit || (names.has(head.name.toLowerCase()) && !dueBelow(i)))) {
       block = { owner: ownerNode(head.name), plain: true }
       section = 'owner'
       group = []
@@ -506,6 +579,20 @@ export function parseMinutes(
     // "PROJECT: CampusConnect"
     const project = rawItem.match(/^project\s*[:\-–]\s*(.{2,60})$/i)
     if (project) { addNode(clean(project[1]), 'PROJECT'); continue }
+    // "Hackathon Project" on its own line, then "- Shriya (design)": the project's members and their roles.
+    const projectLine = !isItem && line.match(PROJECT_LINE)
+    if (projectLine) {
+      roster = addNode(clean(projectLine[1]), 'PROJECT')
+      block = undefined
+      section = ''
+      continue
+    }
+    const member = roster && rawItem.match(new RegExp(`^(${NAME})\\s*\\(([^()]{2,40})\\)\\s*$`))
+    // "- Logo (Ben)" would be Ben's to-do; a role is not a name.
+    if (member && roster && isName(member[1]) && !isName(member[2].trim())) {
+      addEdge(person(displayName(member[1]), clean(member[2])), roster, 'PART_OF')
+      continue
+    }
 
     // Inline "Decision: ..." anywhere.
     const inlineDecision = rawItem.match(/^decision\s*[:\-–]\s*(.+)$/i)
@@ -585,10 +672,9 @@ export function parseMinutes(
       block = undefined
       section = ''
     }
-    // "Fix login" with "DUE Oct 20" under it: an action item, with nobody named.
-    const below = nextLine(i)
-    if (!block && !isItem && !listMode && !['decisions', 'risks', 'milestones'].includes(section) && below &&
-        DUE_LINE.test(normalizeDates(below.trim(), ctx.meetingDate)) && line.split(/\s+/).length <= 8 && !headingOf(below.trim())) {
+    // "Fix login" with "DUE Oct 20" (or "- due: Friday") under it: an action item, with nobody named.
+    if (!block && !isItem && !listMode && !['decisions', 'risks', 'milestones'].includes(section) && dueBelow(i) &&
+        line.split(/\s+/).length <= 8 && !headingOf(nextLine(i)!.trim())) {
       listItem(raw, item)
       continue
     }
@@ -599,11 +685,36 @@ export function parseMinutes(
       const target = mentioned(item, ['MILESTONE', 'TASK'])
       if (target) { addNode(target.label, target.type, { date: moved[2] ?? moved[3] }); continue }
     }
+    // "API setup is now due 2 days later", "the launch was pushed back by a week": its known date, moved.
+    const shift = item.match(SHIFT)
+    if (shift) {
+      const target = mentioned(item, ['MILESTONE', 'TASK'])
+      const from = target && (ctx.knownEntities ?? []).find((e) => e.label === target.label)?.date
+      if (target && from) {
+        const [count, unit, dir] = shift[1] ? [shift[1], shift[2], shift[3]] : [shift[5], shift[6], shift[4]]
+        const days = (NUMBER[count.toLowerCase()] ?? Number(count)) * (/^week/i.test(unit) ? 7 : 1) * (/earlier|sooner|forward|pulled in/i.test(dir) ? -1 : 1)
+        addNode(target.label, target.type, { date: new Date(Date.parse(`${from}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10) })
+        continue
+      }
+    }
+    // "Linh has completed all of her tasks": every open to-do of hers.
+    const allDone = !NEGATION.test(item) && item.match(new RegExp(`^(${OWNERS})\\s+(?:has\\s+|have\\s+|is\\s+|are\\s+)?` +
+      `(?:completed|finished|done(?: with)?|wrapped up)\\s+(?:all|every one|each)\\s+(?:of\\s+)?(?:her|his|their|the)?\\s*(?:tasks?|to-?dos?|action items?|items?|work)\\b`))
+    if (allDone) {
+      const names = splitOwners(allDone[1]).map((o) => normalize(o).split(' ')[0])
+      const theirs = (ctx.knownEntities ?? []).filter((e) => e.type === 'TASK' && e.status !== 'DONE' &&
+        e.owners?.some((o) => names.includes(normalize(o).split(' ')[0])))
+      for (const t of theirs) addNode(t.label, 'TASK', { status: 'DONE' })
+      if (theirs.length) continue
+    }
     if (STATUS_WORDS.test(item) && (section === 'updates' || section === 'actions' || section === 'risks' || section === 'notes' || !section)) {
       const target = mentioned(item, ['TASK', 'BLOCKER', 'MILESTONE'])
       const status = target && statusFrom(item, target.type)
       if (target && status) { addNode(target.label, target.type, { status }); continue }
     }
+    // "Linh has tested the database" / "Linh finished testing": done, said with the to-do's own verb.
+    const did = !['decisions', 'milestones', 'risks'].includes(section) && didTask(item)
+    if (did) { addNode(did.label, 'TASK', { status: 'DONE' }); continue }
 
     // "Team agreed to launch beta next Tuesday" / "We decided to release v2 on Oct 30": a dated event the
     // group committed to is a milestone ("Beta launch"), not anyone's to-do.
@@ -620,9 +731,10 @@ export function parseMinutes(
     // Action items also appear without an "Action items" heading: "TODO: ...", "Action: ...", or a
     // bullet with an owner and a due date ("- Dana Kim: book the venue (due 2026-10-20)").
     const todo = item.match(/^(?:todo|to do|action(?: item)?|ai)\s*[:\-–]\s*(.+)$/i)
-    const due = item.match(new RegExp(`\\(?\\s*(?:due|by)\\s*[:\\-–]?\\s*(${DATE.source})\\s*\\)?`, 'i'))
+    const due = item.match(DUE_ANY)
     // "Ben: book the venue by Oct 10" or "Ben will book the venue by Friday"
-    const colonOwner = item.match(new RegExp(`^(${OWNERS}|[A-Z][A-Za-z ]*Team)\\s*[:\\-–]\\s*(\\S.*)$`))
+    // A dash only separates with a space before it: "Load-test the API" is not Load's to-do.
+    const colonOwner = item.match(new RegExp(`^(${OWNERS}|[A-Z][A-Za-z ]*Team)(?:\\s*:|\\s+[-–])\\s*(\\S.*)$`))
     const commitOwner = item.match(new RegExp(`^(${OWNERS}) ${COMMIT} (\\S.*)$`))
     const ownerFirst = !!colonOwner || !!commitOwner
     const listSection = !['milestones', 'risks', 'decisions', 'updates'].includes(section)
@@ -631,11 +743,23 @@ export function parseMinutes(
     // A bullet that hands someone work is a to-do even without a date: "- Mike will review the new UI",
     // "- Sarah + Mike: prepare demo", "- Need to fix login bug". "- Dana: presented the shortlist" is a report.
     const named = (who: string) => /team$/i.test(who) || splitOwners(who).every(isName)
-    const bulletTask = isItem && listSection && (
+    // "New member (Jim) tasked with UI design", "Ham is tasked with running the demo", "Maya is in charge of the venue".
+    const tasked = item.match(new RegExp(`(?:^|[\\s(])(${OWNERS})\\)?,?\\s+(?:is\\s+|has been\\s+|was\\s+|will be\\s+|gets\\s+)?(?:tasked with|in charge of)\\s+(\\S.*)$`))
+    const taskedBy = tasked && named(tasked[1]) ? tasked : undefined
+    const bulletTask = (!!taskedBy && listSection) || isItem && listSection && (
       (!!commitOwner && named(commitOwner[1]) && !/^be\b/i.test(commitOwner[2])) ||
       (!!colonOwner && named(colonOwner[1]) && asksForWork(colonOwner[2])) ||
       (NEED.test(item) && asksForWork(item.match(NEED)![1])))
     const looseTask = !!todo || bulletTask || (!!due && (ownerFirst || ownerlessDue) && listSection)
+
+    // "NOTE: Full team meeting on Sunday", "Demo day on Oct 30": a scheduled meeting, not anyone's to-do.
+    const meeting = !looseTask && !due && !(commitOwner && named(commitOwner[1])) && !['decisions', 'risks'].includes(section) &&
+      item.match(SCHEDULED)
+    // "Weekly sync Oct 6" at the top of the Oct 6 notes is their title, not an upcoming event.
+    if (meeting && (!ctx.meetingDate || meeting[2] > ctx.meetingDate)) {
+      last = addNode(cap(clean(meeting[1])), 'MILESTONE', { date: meeting[2], status: 'OPEN' })
+      continue
+    }
 
     if (!isItem && !looseTask && !listMode) continue
 
@@ -645,12 +769,13 @@ export function parseMinutes(
       // "Raj Patel: draft the target architecture (due 2026-09-12)." / "Raj to draft ..." / "polish UI (Maya)"
       let body = (todo ? todo[1] : item).replace(due?.[0] ?? '', '').replace(DONE_MARK, '').replace(OPEN_MARK, '')
       let owners: string[] = []
-      const colon = body.match(new RegExp(`^(${OWNERS}|[A-Z][A-Za-z ]*Team)\\s*[:\\-–]\\s*(.+)$`))
+      const colon = body.match(new RegExp(`^(${OWNERS}|[A-Z][A-Za-z ]*Team)(?:\\s*:|\\s+[-–])\\s*(.+)$`))
       const to = body.match(new RegExp(`^(${OWNERS}) ${COMMIT} (.+)$`))
       const paren = body.match(new RegExp(`^(.+?)\\s*\\((${OWNERS})\\)\\s*$`))
       const need = body.match(NEED)
       const team = (s: string) => (/team$/i.test(s) ? [s] : splitOwners(s))
-      if (colon && team(colon[1]).every((o) => isName(o) || /team$/i.test(o))) { owners = team(colon[1]); body = colon[2] }
+      if (taskedBy) { owners = team(taskedBy[1]); body = taskedBy[2].replace(due?.[0] ?? '', '') }
+      else if (colon && team(colon[1]).every((o) => isName(o) || /team$/i.test(o))) { owners = team(colon[1]); body = colon[2] }
       else if (to && splitOwners(to[1]).every(isName)) { owners = splitOwners(to[1]); body = to[2] }
       else if (paren && splitOwners(paren[2]).every(isName)) { owners = splitOwners(paren[2]); body = paren[1] }
       else if (need) body = need[1]

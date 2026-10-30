@@ -272,13 +272,22 @@ app.get('/api/sources/:id/trace', (req, res) => {
   res.type('json').send(fs.readFileSync(file, 'utf8'))
 })
 
-app.post('/api/sources/:id/analyze', (req, res) => {
-  const s = store.source(req.params.id)
+/** Read one source again, e.g. after it failed. Takes the visitor's key (ai_provider, ai_key, ai_model) like a new source. */
+app.post('/api/sources/:id/analyze', wrap(async (req, res) => {
+  const s = store.source(String(req.params.id))
   if (!s) return void res.status(404).json({ error: 'not found' })
   if (s.status === 'ANALYZING') return void res.json(s)
+  let key: AiKey | undefined
+  try {
+    key = keyFrom(req.body)
+  } catch (e) {
+    return void res.status(400).json({ error: (e as Error).message })
+  }
+  if (!key && !(await runtime.reachable())) return void res.status(400).json({ error: 'This demo has no AI of its own: add your AI key first.' })
+  if (key) visitorKeys.set(s.id, key)
   void runAnalysis(s.id)
   res.json(s)
-})
+}))
 
 app.post('/api/workspaces/:id/analyze', (req, res) => {
   const pending = store.db.sources.filter((s) => s.workspaceId === req.params.id && (s.status === 'PENDING' || s.status === 'ERROR'))
@@ -325,8 +334,12 @@ function retractSource(s: Source) {
   store.db.edges = store.db.edges.filter((e) => !orphan.has(e.source) && !orphan.has(e.target) && (e.sourceIds.length > 0 || e.id.startsWith('manual')))
 }
 
-/** Serialized analysis queue: a local GPU handles one model call at a time well. */
-let queue = Promise.resolve()
+/**
+ * Serialized analysis queues. The local model gets one queue: a local GPU handles one model call at a time well.
+ * Sources read with a visitor's own key go to that visitor's provider, so they don't wait for other visitors:
+ * one queue per board (a board's sources still merge one at a time, in order).
+ */
+const queues = new Map<string, Promise<void>>()
 /** Visitors' keys for sources still waiting to be read. Memory only: never saved, never logged. */
 const visitorKeys = new Map<string, AiKey>()
 function runAnalysis(sourceId: string) {
@@ -336,11 +349,16 @@ function runAnalysis(sourceId: string) {
   s.error = undefined
   persist()
   const key = visitorKeys.get(sourceId)
-  queue = queue
+  const lane = key ? `board:${s.workspaceId}` : 'local'
+  const next: Promise<void> = (queues.get(lane) ?? Promise.resolve())
     .then(() => (key ? withAi(key, () => analyzeSource(sourceId, key)) : analyzeSource(sourceId)))
     .catch(() => undefined)
-    .finally(() => { visitorKeys.delete(sourceId) })
-  return queue
+    .finally(() => {
+      visitorKeys.delete(sourceId)
+      if (queues.get(lane) === next) queues.delete(lane) // nothing queued behind it: drop the idle lane
+    })
+  queues.set(lane, next)
+  return next
 }
 
 async function analyzeSource(sourceId: string, key?: AiKey) {
@@ -351,10 +369,15 @@ async function analyzeSource(sourceId: string, key?: AiKey) {
   if (s.analyzedAt) retractSource(s)
   const asOf = s.meetingDate ?? s.cloudinary?.createdAt?.slice(0, 10) ?? s.createdAt.slice(0, 10)
   const trace: Trace | undefined = TRACE ? [{ stage: 'input', data: { name: s.name, type: s.type, meetingDate: asOf, text: s.text } }] : undefined
+  const nodes = store.db.nodes.filter((n) => n.workspaceId === s.workspaceId)
+  // A to-do's owners, the way the to-do list reads them (person/team -RESPONSIBLE_FOR/OWNS-> task).
+  const ownersOf = (id: string) => store.db.edges
+    .filter((e) => e.target === id && (e.relationship === 'RESPONSIBLE_FOR' || e.relationship === 'OWNS'))
+    .map((e) => nodes.find((n) => n.id === e.source && (n.type === 'PERSON' || n.type === 'TEAM'))?.label)
+    .filter((l): l is string => !!l)
   const ctx = {
     meetingDate: asOf,
-    knownEntities: store.db.nodes.filter((n) => n.workspaceId === s.workspaceId)
-      .map((n) => ({ label: n.label, type: n.type, status: n.status })),
+    knownEntities: nodes.map((n) => ({ label: n.label, type: n.type, status: n.status, date: n.date, ...(n.type === 'TASK' ? { owners: ownersOf(n.id) } : {}) })),
     trace,
   }
   try {
@@ -391,9 +414,15 @@ async function analyzeSource(sourceId: string, key?: AiKey) {
 
 async function loadAnalysisImage(s: Source): Promise<Buffer> {
   if (s.cloudinary) {
-    const res = await fetch(analysisUrl(s.cloudinary.publicId))
-    if (!res.ok) throw new Error(`Cloudinary analysis derivative failed: ${res.status}`)
-    return Buffer.from(await res.arrayBuffer())
+    // The prepared copy, else the original: Cloudinary refuses to transform some photos (e.g. over the plan's
+    // megapixel limit), and the AI can still read the original.
+    for (const url of [analysisUrl(s.cloudinary.publicId), s.cloudinary.secureUrl]) {
+      const res = await fetch(url, { signal: AbortSignal.timeout(60_000) }).catch((e: Error) => e)
+      if (res instanceof Response && res.ok) return Buffer.from(await res.arrayBuffer())
+      console.warn(`[cloudinary] couldn't fetch ${url === s.cloudinary.secureUrl ? 'the original' : 'the analysis copy'}:`,
+        res instanceof Response ? `${res.status} ${res.headers.get('x-cld-error') ?? ''}` : res.message)
+    }
+    throw new Error("Cloudinary couldn't deliver the photo. Try adding it again.")
   }
   return fs.readFileSync(path.join(UPLOAD_DIR, s.localFile!))
 }
@@ -486,9 +515,6 @@ app.delete('/api/edges/:id', (req, res) => {
   res.json({ ok: true })
 })
 
-// Sources stuck in ANALYZING from a previous crash go back to PENDING.
-for (const s of store.db.sources) if (s.status === 'ANALYZING') s.status = 'PENDING'
-
 // Production: serve the built client.
 const dist = path.resolve('dist')
 if (fs.existsSync(dist)) {
@@ -501,6 +527,12 @@ if (fs.existsSync(dist)) {
 const host = process.env.HOST || undefined
 // Hosted demo: bring the boards back from the Cloudinary backup before accepting requests.
 await restoreBackup()
+// Sources queued or being read when the server stopped (a crash, or the hosted app going to sleep): their
+// visitor's key is gone and nothing will pick them up, so say so instead of leaving them "reading" forever.
+// "Try again" (POST /api/sources/:id/analyze) reads them again. After the restore, so the backup's are fixed too.
+for (const s of store.db.sources) {
+  if (s.status === 'ANALYZING') Object.assign(s, { status: 'ERROR', error: 'The server restarted before this was read.' })
+}
 startBackup()
 app.listen(port, host as string, () => {
   console.log(`OrgMap AI server on http://${host ?? 'localhost'}:${port} (cloudinary: ${cloudinaryEnabled ? 'on' : 'off, local storage'})`)

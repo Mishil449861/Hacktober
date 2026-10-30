@@ -13,7 +13,7 @@ process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'orgmap-test-'))
 process.env.OLLAMA_BASE_URL = 'http://127.0.0.1:9'
 process.env.OCR_ENABLED = 'false'
 const { parseMinutes, combineWithModel, dropStruck } = await import('../server/lib/minutes.ts')
-const { applyOwners, dropLeakedDates, sanitize } = await import('../server/lib/ai/provider.ts')
+const { addStatedDates, applyOwners, dropLeakedDates, sanitize } = await import('../server/lib/ai/provider.ts')
 const { mergeExtraction } = await import('../server/graph/reconcile.ts')
 const { buildViews } = await import('../server/views.ts')
 const { store } = await import('../server/store.ts')
@@ -216,6 +216,17 @@ test('dates the model resolves from "Oct 14" / "DUE Fri" are kept; the meeting d
   assert.deepEqual(x.nodes.map((n) => n.date), ['2026-10-14', '2026-10-16', undefined, undefined])
 })
 
+test('a due date on the meeting day is kept when the text says so, and filled in when the model left it out', () => {
+  const text = '- New member on the team (Jim) tasked with UI design due on Oct 24, 2026\n- Ham: run live demo tests due next thursday'
+  const x = addStatedDates(dropLeakedDates(model([
+    { temporaryId: 't1', label: 'UI design', type: 'TASK', confidence: 1, date: '2026-10-24' },
+    { temporaryId: 't2', label: 'Run live demo tests', type: 'TASK', confidence: 1 },
+    { temporaryId: 't3', label: 'Write the agenda', type: 'TASK', confidence: 1 },
+  ]), text, '2026-10-24'), text, '2026-10-24')
+  assert.deepEqual(x.nodes.map((n) => n.date), ['2026-10-24', '2026-10-29', undefined])
+  assert.equal(addStatedDates(model([{ temporaryId: 't1', label: 'UI design', type: 'TASK', confidence: 1 }]), text, '2026-10-24').nodes[0].date, '2026-10-24')
+})
+
 test('owner field: becomes the ownership edge, overrides a conflicting guessed edge, never invents a person', () => {
   const x = applyOwners(model([
     { temporaryId: 'p1', label: 'Linh', type: 'PERSON', confidence: 1 },
@@ -231,6 +242,16 @@ test('owner field: becomes the ownership edge, overrides a conflicting guessed e
   ])
   assert.ok(x.ambiguities.some((a) => a.includes('Jordan')), 'an owner who is not in the notes is reported, not assigned')
   assert.equal(x.nodes.some((n) => 'owner' in n), false, 'ownership lives in the graph only')
+})
+
+test('owner field given as the person node\'s temporaryId ("n2") is that person', () => {
+  const x = applyOwners(model([
+    { temporaryId: 'n2', label: 'Maya', type: 'PERSON', confidence: 1 },
+    { temporaryId: 'n3', label: 'landing page', type: 'TASK', confidence: 1, owner: 'n2' },
+    { temporaryId: 'n4', label: 'logo', type: 'TASK', confidence: 1, owner: 'n9' },
+  ]), 'Maya\n- landing page\n- logo')
+  assert.deepEqual(x.edges.map((e) => `${e.sourceTemporaryId} -${e.relationship}-> ${e.targetTemporaryId}`), ['n2 -RESPONSIBLE_FOR-> n3'])
+  assert.deepEqual(x.ambiguities, ['"logo": owner "n9" is not in the notes, left unassigned.'], 'an id that is no person stays unassigned')
 })
 
 test('sanitize: "Maya → Design" read as REPORTS_TO is not a reporting line', () => {
@@ -347,4 +368,68 @@ test('7c. an item crossed out in one reading is dropped from the other reading a
   const x = combineWithModel(model, parsed)
   assert.deepEqual(x.nodes.map((n) => n.label).sort(), ['Maya', 'Website'])
   assert.deepEqual(x.edges, [], 'the edge to the dropped task goes too')
+})
+
+test('7d. crossing off a to-do the board already has ticks it off (the same photo uploaded again, updated)', () => {
+  // The hackathon board: IMG_5705.JPG read first, then a new photo of the same page with items crossed off.
+  const known = [
+    { label: 'Linh', type: 'PERSON' }, { label: 'Jen', type: 'PERSON' },
+    { label: 'Test database', type: 'TASK', status: 'OPEN', owners: ['Linh'] },
+    { label: 'Product research', type: 'TASK', status: 'OPEN', owners: ['Jen'] },
+    { label: 'Find 2 similar products', type: 'TASK', status: 'OPEN', owners: ['Jen'] },
+    { label: 'Payment API outage', type: 'BLOCKER', status: 'OPEN' },
+  ]
+  const update = 'Linh:\n- ~~Test database~~\n\nJen:\n✓ Product research\n- Find 2 similar products\n- Write pitch\n—Payment API outage'
+  assert.deepEqual(tasks(update, '2026-10-27', known), [
+    'Test database | Linh |  | DONE',
+    'Product research | Jen |  | DONE',
+    'Find 2 similar products | Jen |  | ',
+    'Write pitch | Jen |  | OPEN',
+  ])
+  const photo = parseMinutes(update, { meetingDate: '2026-10-27', knownEntities: known, photo: true })
+  assert.equal(photo.nodes.find((n) => n.label === 'Payment API outage')?.status, 'RESOLVED', 'a crossed-off known blocker is resolved')
+  assert.deepEqual(photo.struck, [], 'nothing on the board was cancelled')
+
+  // Still cancelled: crossed out but not on the board.
+  assert.deepEqual(parseMinutes('Jen:\n- ~~banner ads~~', { knownEntities: known }).struck, ['banner ads'])
+  assert.deepEqual(tasks('Jen:\n- ~~banner ads~~', '2026-10-27', known), [])
+
+  // The other reading saw the strike as garbled text: the to-do stays ticked off, not dropped.
+  const cleaned = dropStruck(photo, ['Test dotabase'])
+  assert.equal(cleaned.nodes.find((n) => n.label === 'Test database')?.status, 'DONE')
+})
+
+test('7e. a bare line over "- due: Friday" is a to-do, not a person; "NOTE: … meeting on Sunday" is a dated event', () => {
+  // The vision transcript of IMG_5705.JPG (2026-10-26, a Monday). "API Setup" used to become a person owning
+  // "NOTE: Full team meeting on 2026-11-01" as a to-do, and the Friday due date was lost.
+  const transcript = 'Hackathon Project\nLinh (frontend)\nJen (product)\nSophia (research)\nMishil (backend)\nShriya (design)\n\n' +
+    'Linh:\n- Test database\n\nJen:\n- Product research\n- Find 2 similar products\n\nAPI Setup\n- due: Friday\n\nNOTE: Full team meeting on Sunday\n'
+  const p = parseMinutes(transcript, { meetingDate: '2026-10-26', photo: true })
+  assert.deepEqual(tasks(transcript, '2026-10-26'), [
+    'Test database | Linh |  | OPEN',
+    'Product research | Jen |  | OPEN',
+    'Find 2 similar products | Jen |  | OPEN',
+    'API Setup |  | 2026-10-30 | OPEN',
+  ])
+  assert.ok(!p.nodes.some((n) => n.type === 'PERSON' && n.label === 'API Setup'))
+  assert.deepEqual(ofType(transcript, 'MILESTONE', '2026-10-26'), ['Full team meeting [OPEN]'])
+  assert.equal(p.nodes.find((n) => n.type === 'MILESTONE')?.date, '2026-11-01')
+  // The roster, unbulleted: members with roles.
+  assert.deepEqual(p.nodes.filter((n) => n.type === 'PERSON').map((n) => `${n.label} (${n.description})`),
+    ['Linh (frontend)', 'Jen (product)', 'Sophia (research)', 'Mishil (backend)', 'Shriya (design)'])
+
+  // Still a person: a bare name over items with no due line.
+  assert.deepEqual(tasks('Maya\n- landing page\n- logo'), ['Landing page | Maya |  | OPEN', 'Logo | Maya |  | OPEN'])
+  // Still to-dos: a meeting someone has to arrange.
+  assert.deepEqual(tasks('- Ben will book the team meeting on Friday', '2026-10-26'), ['Book the team meeting on 2026-10-30 | Ben |  | OPEN'])
+  assert.deepEqual(tasks('Ben: schedule the team meeting by Friday', '2026-10-26'), ['Schedule the team meeting | Ben | 2026-10-30 | OPEN'])
+  assert.deepEqual(ofType('Ben will book the team meeting on Friday', 'MILESTONE', '2026-10-26'), [])
+  // The notes' own title ("weekly sync Oct 6" on Oct 6) is not an upcoming event.
+  assert.deepEqual(ofType('weekly sync Oct 6\nMaya\n- logo', 'MILESTONE', '2026-10-06'), [])
+})
+
+test('7f. a hyphenated word is not "Name - task": "Load-test …" is not Load\'s to-do', () => {
+  // The sprint-board transcript: this one line used to be the only to-do read, replacing the model's five.
+  assert.deepEqual(tasks('- Load-test Auth Service with Redis Cache (Tom)\n- Follow-up with the vendor'), [])
+  assert.deepEqual(tasks('- Ben - book the venue\n- Ana: print badges'), ['Book the venue | Ben |  | OPEN', 'Print badges | Ana |  | OPEN'])
 })

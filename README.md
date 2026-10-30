@@ -323,11 +323,11 @@ All in `.env` (see [.env.example](.env.example)):
 ## Testing
 
 ```bash
-npm test                 # 67 unit tests: the notes parser, handwritten lists and ownership, crossed-out items,
+npm test                 # 78 unit tests: the notes parser, handwritten lists and ownership, crossed-out items,
                          # name matching, validation, relationship fixes, status history, views, visitors'
                          # AI keys (each key only for its own notes, fixed provider addresses, the key check),
                          # Gemini settings, and the backup never being overwritten after a failed restore
-npm run test:demo        # 40 tests of the demo page: the to-do list (including to-dos with no date, owner or
+npm run test:demo        # 52 tests of the demo page: the to-do list (including to-dos with no date, owner or
                          # status), editing it, boards, crafted board links, the online demo's key flow,
                          # and replacing a server left running from before an update
 npm run test:eval        # 6 extraction cases: text, name matching, org chart, process flow, diagram + notes
@@ -404,6 +404,7 @@ The graph editor at `http://localhost:5173` shows the full map behind the to-do 
 | `api_secret mismatch` from Cloudinary | Re-copy the secret with the console's copy button: `I` and `l` look identical in its font. |
 | A step takes minutes | The model is running on CPU. Check `ollama ps`. |
 | A to-do is wrong or missing | Read its extraction trace (see [Testing](#testing)) to find the stage that got it wrong. |
+| "The photo … couldn't be read" | The box says why. "answered 429" or "answered 503" means the AI provider was rate-limited or overloaded (common on Gemini's free tier; the server already retried 3 times): press **Try again** in a minute. "answered 401/403" means the key no longer works. "The server restarted before this was read" means the online demo restarted mid-read: press **Try again**. |
 | Node crashes with *out of memory* | Close other heavy apps and keep `OLLAMA_UNLOAD_ON_SWITCH=true`. |
 | "Disk is full: changes are not being saved" | Free up disk space; the server keeps running in the meantime. |
 | Phone can't open the capture page | Same Wi-Fi? Allow Node through the firewall, and use the IP the server prints, not `localhost`. |

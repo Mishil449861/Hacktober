@@ -10,7 +10,7 @@ import {
 } from '../../../src/shared/schema.ts'
 import { createRuntime } from './runtimes.ts'
 import { normalize, similarity } from '../../graph/text.ts'
-import { combineWithModel, dropStruck, normalizeDates, parseMinutes, type ParsedMinutes } from '../minutes.ts'
+import { combineWithModel, dropStruck, DUE_ANY, mentionScore, normalizeDates, parseMinutes, type KnownEntity, type ParsedMinutes } from '../minutes.ts'
 import { ocrImage } from './ocr.ts'
 
 export const runtime = createRuntime()
@@ -38,9 +38,14 @@ Rules:
   which owns the items below it until the next name or section heading. An arrow from a person to an item means the item is assigned to them, never REPORTS_TO.
   If no name is attached to an item, leave "owner" out. Never guess an owner from a nearby name, and never move an item to a different person's group.
 - Put the due date in "date" (YYYY-MM-DD), resolving relative dates against the meeting date. A "DUE ..." / "by ..." line applies to the item(s)
-  directly above it in the same group, never to another person's items. No date written = no "date".
+  directly above it in the same group, never to another person's items. No date written = no "date". A due date that falls on the
+  meeting day is still the due date. "Next Thursday" = the first Thursday after the meeting date.
+  When the input moves a known item's date by an amount ("2 days later", "pushed back a week"), output the item with the new date,
+  counted from its date in the "Known entities" list.
 - status (optional): TASK = OPEN | IN_PROGRESS | DONE; BLOCKER = OPEN | RESOLVED; MILESTONE = OPEN | DONE. Set it only when the text states it
   ("done", "completed", "resolved", "in progress", "still blocked", ✓, "started", "halfway"). A newly raised blocker or action item is OPEN.
+  A report that someone did a known item is DONE too: "Linh has tested the database", "Ben booked the venue", "Linh finished testing"
+  (reuse the known item's exact label). Something that will happen or is still happening is not DONE.
 - Name blockers by their subject without negation ("PCI audit", not "PCI audit not done") so later meetings can resolve them; put the detail in description.
 - MILESTONE: put its target date in "date" when given. If the meeting moves a milestone, emit the milestone with the NEW date.
 - If the input mentions something from the "Known entities" list, reuse that exact label (this is how updates attach to existing items).
@@ -93,7 +98,7 @@ async function structured<T extends z.ZodTypeAny>(
   const second = tryParse(schema, repaired)
   if (second.ok) return second.value
   if (DEV) console.error('[ai] repair failed:', second.error, repaired.slice(0, 500))
-  throw new ModelOutputError('The local model returned output that could not be validated. See server logs.')
+  throw new ModelOutputError(`The AI's answer wasn't in the expected format, twice (${second.error.slice(0, 200)}).`)
 }
 
 export function tryParse<T extends z.ZodTypeAny>(schema: T, raw: string): { ok: true; value: z.infer<T> } | { ok: false; error: string } {
@@ -209,11 +214,32 @@ export function sanitize(input: Extraction, known: { label: string; type: string
  * is not just the meeting date.
  */
 export function dropLeakedDates(x: Extraction, sourceText: string, meetingDate?: string): Extraction {
-  const stated = `${sourceText}\n${normalizeDates(sourceText, meetingDate)}`
+  const normalized = normalizeDates(sourceText, meetingDate)
+  const stated = `${sourceText}\n${normalized}`
+  // Due on the meeting day itself ("due on Oct 24" in the Oct 24 meeting) is a real date, not a leak.
+  const dueStated = (d: string) => new RegExp(`\\b(?:due|by|deadline|until)\\s*[:\\-–]?\\s*(?:on\\s+)?${d}`, 'i').test(normalized)
   return {
     ...x,
-    nodes: x.nodes.map((n) => (n.date && ((meetingDate && n.date === meetingDate) || !stated.includes(n.date)) && n.type !== 'DECISION'
+    nodes: x.nodes.map((n) => (n.date && ((meetingDate && n.date === meetingDate && !dueStated(n.date)) || !stated.includes(n.date)) && n.type !== 'DECISION'
       ? { ...n, date: undefined } : n)),
+  }
+}
+
+/**
+ * The model sometimes leaves out a due date the text states ("tasked with UI design due on Oct 24, 2026", or
+ * "due next Thursday" it wasn't sure about). Give an undated to-do or milestone the one due date written on
+ * the line that names it.
+ */
+export function addStatedDates(x: Extraction, sourceText: string, meetingDate?: string): Extraction {
+  const lines = normalizeDates(sourceText, meetingDate).split('\n')
+  const dueOn = (line: string) => [...new Set([...line.matchAll(new RegExp(DUE_ANY.source, 'gi'))].map((m) => m[1]))]
+  return {
+    ...x,
+    nodes: x.nodes.map((n) => {
+      if (n.date || (n.type !== 'TASK' && n.type !== 'MILESTONE')) return n
+      const dates = lines.filter((l) => mentionScore(l, n.label) >= 0.6).flatMap(dueOn)
+      return new Set(dates).size === 1 ? { ...n, date: dates[0] } : n
+    }),
   }
 }
 
@@ -232,7 +258,9 @@ export function applyOwners(x: Extraction, evidence?: string): Extraction {
   const ambiguities = [...x.ambiguities]
   const words = evidence === undefined ? undefined : new Set(normalize(evidence).split(' '))
   for (const t of x.nodes) {
-    const name = t.owner?.trim()
+    // Models sometimes name the owner by its node's temporaryId ("n2") instead of the name written.
+    const byId = nodes.find((p) => p.temporaryId === t.owner?.trim() && OWNERS.has(p.type))
+    const name = byId?.label ?? t.owner?.trim()
     if (!name || NOBODY.test(name) || t.type !== 'TASK') continue
     if (words && !normalize(name).split(' ').every((w) => words.has(w))) {
       ambiguities.push(`"${t.label}": owner "${name}" is not in the notes, left unassigned.`)
@@ -288,7 +316,7 @@ export async function analyzeText(text: string, context?: string, ctx: AnalysisC
     return { extraction, model: 'minutes parser (model failed)' }
   }
   ctx.trace?.push({ stage: 'model.validated', data: raw })
-  const extraction = sanitize(combineWithModel(dropLeakedDates(applyOwners(raw, text), text, ctx.meetingDate), parsed, text), ctx.knownEntities)
+  const extraction = sanitize(combineWithModel(addStatedDates(dropLeakedDates(applyOwners(raw, text), text, ctx.meetingDate), text, ctx.meetingDate), parsed, text), ctx.knownEntities)
   ctx.trace?.push({ stage: 'final', data: extraction })
   return { extraction, model: parsed.nodes.length ? `${model} + minutes parser` : model }
 }
@@ -337,7 +365,7 @@ export function addOcrAnnotations(x: Extraction, ocrText: string, skipTasks = fa
 export interface AnalysisContext {
   meetingDate?: string
   /** Labels already in the workspace graph, so the model reuses them for updates. */
-  knownEntities?: { label: string; type: string; status?: string }[]
+  knownEntities?: KnownEntity[]
   /** When set, each stage appends what it produced (see Trace). */
   trace?: Trace
   /** The text was read from a photo (OCR), so crossed-out lines look like "—text" (see parseMinutes). */
@@ -364,7 +392,7 @@ export function contextBlock(ctx: AnalysisContext = {}, input = '') {
   if (ctx.meetingDate) parts.push(`Meeting date: ${ctx.meetingDate}.`)
   const known = relevantKnown(ctx.knownEntities, input)
   if (known.length) {
-    const list = known.map((e) => `${e.label} (${e.type}${e.status ? ', ' + e.status : ''})`).join('; ')
+    const list = known.map((e) => `${e.label} (${e.type}${e.status ? ', ' + e.status : ''}${e.date ? ', date ' + e.date : ''})`).join('; ')
     parts.push(`Known entities from earlier meetings. When the input refers to one, reuse its exact label. ` +
       `Do NOT output known entities the input does not mention: ${list}`)
   }
@@ -404,7 +432,8 @@ Identify systems, components, teams, people, processes, dependencies, ownership,
       if (!ocrText) throw e
       console.warn('[ai] vision extraction failed, falling back to OCR + text:', (e as Error).message)
       const res = await analyzeText(ocrText, `Text OCR-extracted from a whiteboard / sprint board photo named "${name}".`, { ...ctx, photo: true })
-      const extraction = sanitize(addOcrAnnotations(res.extraction, ocrText), ctx.knownEntities)
+      // As below: when the to-dos were read already, don't add the raw "TODO: Ben: book the bus by Friday" lines again.
+      const extraction = sanitize(addOcrAnnotations(res.extraction, ocrText, res.extraction.nodes.some((n) => n.type === 'TASK')), ctx.knownEntities)
       extraction.ambiguities = [`Vision model failed (${(e as Error).message.slice(0, 300)}); the photo was read with OCR.`, ...extraction.ambiguities]
       return { ...res, extraction, model: `tesseract + ${res.model} (vision failed)`, ocrText }
     }
@@ -426,7 +455,7 @@ Identify systems, components, teams, people, processes, dependencies, ownership,
     const notes = parsed === fromTranscript ? transcript : ocrText
     ctx.trace?.push({ stage: 'notes-parser', data: { input: parsed === fromTranscript ? 'transcript' : 'ocr', ...parsedSummary(parsed) } })
     const evidence = `${ocrText}\n${transcript}`
-    const merged = combineWithModel(dropLeakedDates(applyOwners(extraction, evidence), evidence, ctx.meetingDate), parsed, evidence)
+    const merged = combineWithModel(addStatedDates(dropLeakedDates(applyOwners(extraction, evidence), evidence, ctx.meetingDate), notes, ctx.meetingDate), parsed, evidence)
     const cleaned = addOcrAnnotations(merged, notes, parsed.nodes.some((n) => n.type === 'TASK'))
     const via = visionModel + (ocrText ? ' + tesseract' : '') + (parsed.nodes.length ? ` + notes parser (${parsed === fromTranscript ? 'transcript' : 'ocr'})` : '')
     const final = sanitize({ ...cleaned, transcript: undefined }, ctx.knownEntities)
